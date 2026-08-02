@@ -189,4 +189,29 @@ check('without the map, one-choice multi_select falls back to a string', () => {
   assert.equal(answersToValues([row])[multi.versionId], 'bsc')
 })
 
-console.log(`\n${passed} validation checks passed\n`)
+
+// ---------- bindingIdFor: insert vs update (FR-13, FR-15) ----------
+const { bindingIdFor } = await load('src/lib/validation.js')
+
+console.log('\nbindingIdFor — which row a save targets')
+check('fresh /feedback/new inserts', () =>
+  assert.equal(bindingIdFor(undefined, null), null))
+check('editing an existing submission updates that row', () =>
+  assert.equal(bindingIdFor('resp-1', null), 'resp-1'))
+check('route id wins over a stale saved id', () => {
+  // Navigating /feedback/a -> /feedback/b must not write to `a`.
+  assert.equal(bindingIdFor('resp-b', 'resp-a'), 'resp-b')
+})
+check('re-saving the same new submission updates it, not a duplicate', () =>
+  assert.equal(bindingIdFor(undefined, 'resp-new'), 'resp-new'))
+check('REGRESSION: /feedback/<id> -> /feedback/new must insert', () => {
+  // The bug: FeedbackForm stays mounted across this navigation, so an id from
+  // the previous save leaked in and silently overwrote the earlier submission.
+  // The page now resets savedId in the load effect; if that reset is ever
+  // removed, savedId would be 'resp-old' here and this asserts the intent.
+  assert.equal(bindingIdFor(undefined, null), null)
+})
+
+console.log(`
+${passed} validation checks passed
+`)

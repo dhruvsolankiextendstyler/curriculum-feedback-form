@@ -174,3 +174,25 @@ export function toAnswerRow(question, value) {
       return null
   }
 }
+
+/**
+ * Which row a save should target, given the current route and any id produced
+ * by an earlier save in this same mount (FR-13, FR-15).
+ *
+ * Extracted from FeedbackForm so the rule is testable without React. The bug
+ * this guards against: React keeps FeedbackForm mounted when navigating
+ * /feedback/<id> -> /feedback/new, so an id left over from a previous save
+ * would silently UPDATE the earlier submission instead of INSERTing a new one —
+ * losing the first response and never surfacing the duplicate warning.
+ *
+ * @param {string|undefined} routeId  the :responseId param, undefined on /new
+ * @param {string|null} savedId       id returned by a save during this mount
+ * @returns {string|null} the id to update, or null to insert
+ */
+export function bindingIdFor(routeId, savedId) {
+  // The route always wins: it is the user's explicit intent.
+  if (routeId) return routeId
+  // On /feedback/new, only an id created during THIS visit may be reused, so a
+  // second save of the same course edits rather than erroring.
+  return savedId ?? null
+}

@@ -9,7 +9,7 @@ import {
   loadResponse,
   saveSubmission,
 } from '../lib/submissions'
-import { validateForm } from '../lib/validation'
+import { bindingIdFor, validateForm } from '../lib/validation'
 
 /**
  * The feedback form (FR-8 to FR-16).
@@ -29,6 +29,17 @@ export default function FeedbackForm() {
   const [values, setValues] = useState({})
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState({ phase: 'loading', message: null })
+
+  /**
+   * The row this form is bound to.
+   *
+   * Starts as the route param and is set after a successful insert, so a second
+   * save of the SAME course updates rather than erroring. It must reset to null
+   * whenever the route returns to /feedback/new — a `useState` initialiser alone
+   * runs once per mount, and React keeps this component mounted across that
+   * navigation, so a stale id would silently overwrite the previous submission
+   * instead of creating a new one.
+   */
   const [savedId, setSavedId] = useState(responseId ?? null)
 
   const errorSummary = useRef(null)
@@ -36,6 +47,13 @@ export default function FeedbackForm() {
   // ---------- load ----------
   useEffect(() => {
     let active = true
+
+    // Re-bind to whatever the route now points at. Without this, navigating
+    // /feedback/<id> -> /feedback/new leaves savedId set and the next save
+    // updates the old row instead of inserting a new one (FR-13, FR-15).
+    setSavedId(responseId ?? null)
+    setErrors({})
+    setStatus({ phase: 'loading', message: null })
 
     async function load() {
       try {
@@ -125,7 +143,7 @@ export default function FeedbackForm() {
     setStatus({ phase: 'saving', message: null })
     try {
       const id = await saveSubmission({
-        responseId: savedId,
+        responseId: bindingIdFor(responseId, savedId),
         userId: user.id,
         form: schema.form,
         cycle,
