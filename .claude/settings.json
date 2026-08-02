@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"let s='';process.stdin.on\\('data',d=>s+=d\\).on\\('end',\\(\\)=>{const v=JSON.parse\\(s\\).filter\\(x=>/^7\\\\./.test\\(x\\)&&!x.includes\\('-'\\)\\);console.log\\('7.x releases:',v.slice\\(-8\\).join\\(', '\\)\\);console.log\\('latest:',v[v.length-1]\\);}\\)\")",
+      "Bash(sed -i \"s#'./src/lib/constants.js'#'file:///c:/Users/Dharmik/StudioProjects/FP/src/lib/constants.js'#\" /tmp/t.mjs)",
+      "Bash(node /tmp/t.mjs)",
+      "Bash(node scripts/check-safe-redirect.mjs)",
+      "Bash(awk '{n=gsub\\(/'\"'\"'/,\"'\"'\"'\"\\); if \\(n%2==1 && $0 !~ /^--/\\) print NR\": \"$0}' supabase/migrations/0003_seed.sql)",
+      "Bash(node scripts/check-supabase-url.mjs)",
+      "Bash(awk -F', ' '{printf \"%-15s %s\\\\n\",$1,$2}')",
+      "Bash(node scripts/check-validation.mjs)",
+      "Bash(grep -rn \"^import .* from '\\\\.\\\\./\\\\?[a-zA-Z/]*'\" src/lib/)",
+      "Bash(node scripts/check-admin.mjs)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__execute_sql",
+      "mcp__supabase__list_extensions",
+      "Bash(claude mcp *)"
+    ]
+  }
+}
