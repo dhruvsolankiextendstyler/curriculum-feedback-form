@@ -40,9 +40,19 @@ export async function loadMySubmissions(userId, cycleId) {
 /**
  * Loads one response plus its answers, shaped into the form's value map.
  *
- * Answers are keyed by question_version_id. A stored answer whose version is no
- * longer any question's current version simply won't match a rendered field —
- * correct behaviour, since that wording was superseded (FR-31).
+ * Answers are keyed by question_version_id, but the form renders each question's
+ * CURRENT version. When an admin rewords a question, those two ids diverge, so a
+ * naive version-id lookup would leave the field blank and the respondent would
+ * appear to have never answered it — losing their choice the moment they resave
+ * (FR-16, FR-17).
+ *
+ * So answers are re-keyed by question identity: the stored value is carried onto
+ * whichever version the form is showing now. The stored row itself is untouched
+ * and still points at the wording that was actually answered, which is what
+ * keeps historical analytics honest (FR-31).
+ *
+ * An answer whose question has since been soft-deleted has no rendered field and
+ * is simply dropped from the value map — correct, since there is nothing to edit.
  */
 export async function loadResponse(responseId, questions = null) {
   const { data: response, error } = await supabase
@@ -54,12 +64,19 @@ export async function loadResponse(responseId, questions = null) {
   if (error) throw new Error(error.message)
   if (!response) return null
 
+  // question_id comes along so an answer can be matched to its question even
+  // after the wording changed underneath it.
   const { data: answers, error: aError } = await supabase
     .from('answers')
-    .select('question_version_id, value_numeric, value_text, value_options')
+    .select(
+      `question_version_id, value_numeric, value_text, value_options,
+       question_versions!inner ( question_id )`,
+    )
     .eq('response_id', responseId)
 
   if (aError) throw new Error(aError.message)
+
+  const rows = remapAnswersToCurrentVersions(answers ?? [], questions)
 
   // Passing the questions lets answersToValues tell a single_select from a
   // one-choice multi_select by type instead of guessing from array length.
@@ -67,7 +84,36 @@ export async function loadResponse(responseId, questions = null) {
     ? new Map(questions.map((q) => [q.versionId, q]))
     : null
 
-  return { response, values: answersToValues(answers ?? [], byVersionId) }
+  return { response, values: answersToValues(rows, byVersionId) }
+}
+
+/**
+ * Rewrites each answer's question_version_id to the version the form is
+ * currently rendering for that same question.
+ *
+ * Pure apart from its inputs; exported for the unit tests.
+ */
+export function remapAnswersToCurrentVersions(answers, questions) {
+  if (!questions) return answers
+
+  const currentVersionByQuestionId = new Map(questions.map((q) => [q.id, q.versionId]))
+
+  return answers
+    .map((row) => {
+      const questionId = Array.isArray(row.question_versions)
+        ? row.question_versions[0]?.question_id
+        : row.question_versions?.question_id
+
+      // No question_id (older shape) means we cannot remap; keep as-is.
+      if (!questionId) return row
+
+      const currentVersionId = currentVersionByQuestionId.get(questionId)
+      // Question no longer on the live form (soft-deleted): drop it.
+      if (!currentVersionId) return null
+
+      return { ...row, question_version_id: currentVersionId }
+    })
+    .filter(Boolean)
 }
 
 /**

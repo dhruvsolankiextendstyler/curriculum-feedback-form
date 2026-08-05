@@ -16,7 +16,8 @@
       "mcp__supabase__list_extensions",
       "Bash(claude mcp *)",
       "Bash(sed -i '192d' scripts/check-validation.mjs)",
-      "Bash(printf '\\\\nconsole.log\\(`\\\\\\\\n${passed} validation checks passed\\\\\\\\n`\\)\\\\n')"
+      "Bash(printf '\\\\nconsole.log\\(`\\\\\\\\n${passed} validation checks passed\\\\\\\\n`\\)\\\\n')",
+      "Bash(node scripts/check-answer-remap.mjs)"
     ]
   }
 }
