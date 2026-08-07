@@ -5,8 +5,8 @@ import { chunk } from './csv'
  * Admin user management (FR-19 to FR-24).
  *
  * Reads and profile edits go straight to Postgres under the admin's own RLS
- * policies. Anything that creates an auth account is delegated to
- * /api/admin/invite-users, because that needs the service_role key.
+ * policies. Anything that creates an auth account is delegated to the
+ * invite-users Edge Function, because that needs the service_role key.
  */
 
 export async function loadUsers({ role = null, status = null, search = '' } = {}) {
@@ -66,51 +66,69 @@ export async function setUserStatus(userId, status) {
  */
 export async function inviteUsers(users, onProgress = () => {}) {
   const { data: sessionData } = await supabase.auth.getSession()
-  const token = sessionData?.session?.access_token
-  if (!token) throw new Error('Your session has expired. Please sign in again.')
+  if (!sessionData?.session?.access_token) {
+    throw new Error('Your session has expired. Please sign in again.')
+  }
 
   const batches = chunk(users, 25)
   const totals = { invited: 0, skipped: 0, failed: 0, results: [] }
   let done = 0
 
   for (const batch of batches) {
-    const response = await fetch('/api/admin/invite-users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ users: batch }),
+    // functions.invoke attaches the caller's access token and handles CORS, so
+    // the Edge Function can verify who is asking. It resolves with { data, error }
+    // instead of throwing on a non-2xx.
+    const { data: body, error } = await supabase.functions.invoke('invite-users', {
+      body: { users: batch, redirectTo: `${window.location.origin}/set-password` },
     })
 
-    if (!response.ok) {
-      let message = `Invite request failed (${response.status}).`
-      try {
-        const body = await response.json()
-        if (body?.error) message = body.error
-      } catch {
-        // A 404 here almost always means the API route is not running: `vite dev`
-        // serves the SPA only. Say so rather than reporting a bare status code.
-        if (response.status === 404) {
-          message =
-            'The invite endpoint was not found. Run the app with `vercel dev` ' +
-            'so the /api routes are served (see README).'
-        }
-      }
-      throw new Error(message)
-    }
+    if (error) throw new Error(await describeInvokeError(error))
 
-    const body = await response.json()
-    totals.invited += body.invited ?? 0
-    totals.skipped += body.skipped ?? 0
-    totals.failed += body.failed ?? 0
-    totals.results.push(...(body.results ?? []))
+    totals.invited += body?.invited ?? 0
+    totals.skipped += body?.skipped ?? 0
+    totals.failed += body?.failed ?? 0
+    totals.results.push(...(body?.results ?? []))
 
     done += batch.length
     onProgress({ done, total: users.length })
   }
 
   return totals
+}
+
+/**
+ * Extracts something actionable from a functions.invoke failure.
+ *
+ * On a non-2xx, supabase-js raises FunctionsHttpError whose own `message` is only
+ * "Edge Function returned a non-2xx status code" — the real reason is in the
+ * attached response body, which has to be read to be seen.
+ */
+async function describeInvokeError(error) {
+  try {
+    const body = await error.context?.json?.()
+    if (body?.error) return body.error
+  } catch {
+    // Body was not JSON (a platform-level error page, say); fall through.
+  }
+
+  const status = error.context?.status
+
+  // 404 means the function was never deployed — the most likely state for a
+  // teammate who has just cloned the repo.
+  if (status === 404) {
+    return (
+      'The invite-users function is not deployed to this Supabase project. ' +
+      'Run: supabase functions deploy invite-users'
+    )
+  }
+  if (status === 401) {
+    return 'Your session has expired. Please sign in again.'
+  }
+  if (status === 403) {
+    return 'Admin access required to invite users.'
+  }
+
+  return error.message ?? 'The invite request failed.'
 }
 
 function translateUserError(error) {

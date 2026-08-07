@@ -157,7 +157,7 @@ See §1.3.
 - **NFR-2 Performance:** Forms and dashboards load < 3s on typical broadband.
 - **NFR-3 Security:** Row-level security so users access only their own data; admins scoped appropriately. Passwords hashed (handled by Supabase Auth). **Business rules that protect data integrity — the one-per-course constraint and the edit window — are enforced in the database/RLS layer, not only client-side.**
 - **NFR-4 Privacy:** Personal fields (name, contact) stored securely; export limited to admins.
-- **NFR-5 Reliability:** Must operate within Supabase & Vercel **free-tier** limits at 100–500 users.
+- **NFR-5 Reliability:** Must operate within Supabase & Cloudflare Workers **free-tier** limits at 100–500 users.
 - **NFR-6 Usability:** Non-technical respondents can complete a form without training.
 - **NFR-7 Accessibility:** Basic a11y — labels, keyboard nav, sufficient contrast.
 - **NFR-8 Browser support:** Latest Chrome, Edge, Firefox, Safari.
@@ -170,8 +170,8 @@ See §1.3.
 | Layer | Choice |
 |---|---|
 | **Frontend** | JavaScript + React |
-| **Backend / DB / Auth** | Supabase (Postgres, Auth, Row-Level Security) |
-| **Hosting** | Vercel (frontend) + Supabase (managed backend) |
+| **Backend / DB / Auth** | Supabase (Postgres, Auth, Row-Level Security, Edge Functions) |
+| **Hosting** | Cloudflare Workers static assets (frontend) + Supabase (managed backend) |
 | **Charts** | Free React charting library (e.g. Recharts/Chart.js) |
 | **Transactional email** | Free SMTP provider (Brevo / Resend free tier) wired into Supabase Auth — required at 100–500 users |
 | **Sentiment/insights** | Client/edge, free lexicon-based (e.g. rule-based or a lightweight JS sentiment lib) — **no paid LLM** |
@@ -180,17 +180,18 @@ See §1.3.
 - **Email at 100–500 users (decided scale):** Supabase's built-in email sender is rate-limited to only a few messages per hour — far too slow to onboard hundreds of users. **Mitigation:** connect a **free third-party SMTP provider** (Brevo ~300 emails/day free, or Resend free tier) as Supabase Auth's custom SMTP. Combined with **CSV bulk import** and **throttled batch invites** (FR-23, FR-24), onboarding 500 users spreads over ~2 days at worst. Budget impact: ₹0.
   - Keep the email provider **swappable via config** so switching providers needs no code changes.
 - **Supabase free tier capacity:** at 500 users × ~10 courses × ~15 answers, the `answers` table stays in the low hundreds of thousands of rows — comfortably inside free-tier limits. Worth re-checking before a second cycle.
-- **Vercel free tier:** fine for this scale.
+- **Cloudflare Workers free tier:** fine for this scale, and unlike Vercel's Hobby tier it allows the whole team to deploy — Vercel refuses deploys authored by anyone but the account owner without paid seats. (Pages was the original plan; Cloudflare has since closed it to new projects, and Workers static assets is the supported replacement.)
 - **Advanced analytics:** true AI sentiment would need a paid API. v1 uses **free rule-based/lexicon** sentiment + keyword-frequency insights. LLM-based analysis is a **stretch goal**, not committed.
 
 ### 7.2 High-level architecture
 ```
-React SPA (Vercel)
+React SPA (Cloudflare Workers static assets)
    │  (Supabase JS client)
    ▼
 Supabase
    ├── Auth (email+password, RLS)
    │     └── custom SMTP → free provider (Brevo/Resend)
+   ├── Edge Function invite-users (service_role stays server-side)
    ├── Postgres (users, cycles, forms, questions,
    │             question_versions, options, scales,
    │             responses, answers)
@@ -367,7 +368,7 @@ Tables (Supabase/Postgres):
 
 | Week | Deliverables |
 |---|---|
-| **Week 1** | Finalize PRD; set up repo, Supabase project, Vercel; auth (email+password); **custom SMTP provider connected**; DB schema **incl. question versioning + unique/edit-window constraints and RLS**; seed all 5 forms' questions. |
+| **Week 1** | Finalize PRD; set up repo, Supabase project, Cloudflare Workers; auth (email+password); **custom SMTP provider connected**; DB schema **incl. question versioning + unique/edit-window constraints and RLS**; seed all 5 forms' questions. |
 | **Week 2** | User panel: role-based routing, all 5 interactive forms, validation, submit + confirmation, **"my submissions" with edit-until-close**. |
 | **Week 3** | Admin panel: user CRUD, **CSV bulk import + throttled batch invites**, question CRUD + reorder + **versioning/soft-delete UI & history view**, cycle management (incl. close dates). |
 | **Week 4** | Analytics dashboard (counts, averages, charts, filters, distributions, version-aware trends), CSV export, rule-based sentiment/insights; QA, polish, deploy. |
@@ -410,7 +411,7 @@ Tables (Supabase/Postgres):
 - **A batch of ~100+ users can be imported via CSV and invited without hitting an email rate limit.**
 - Text responses receive basic sentiment tags and the dashboard surfaces at least a few auto-insights.
 - Data exportable to CSV.
-- Deployed on Vercel + Supabase within free-tier limits, at ₹0.
+- Deployed on Cloudflare Workers + Supabase within free-tier limits, at ₹0.
 
 ---
 

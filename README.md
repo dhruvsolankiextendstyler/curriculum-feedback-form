@@ -5,7 +5,8 @@ Web app for collecting curriculum feedback from five stakeholder groups
 
 Requirements live in [prd.md](prd.md). Code comments reference its FR/NFR IDs.
 
-**Stack:** React + Vite · Supabase (Postgres, Auth, RLS) · Vercel · ₹0 budget.
+**Stack:** React + Vite · Supabase (Postgres, Auth, RLS, Edge Functions) ·
+Cloudflare Workers · ₹0 budget.
 
 ---
 
@@ -61,30 +62,53 @@ on conflict (id) do update set role = 'admin', status = 'active';
 npm run dev
 ```
 
-### 6. Inviting users needs `vercel dev`
+### 6. Deploy the invite function
 
 Creating an auth account requires the Supabase **service_role** key, which
-bypasses every RLS policy and must never reach the browser. It therefore lives
-only in a serverless function, `api/admin/invite-users.js`.
-
-`npm run dev` serves the SPA alone, so the invite button returns 404 under it.
-To exercise invites locally:
+bypasses every RLS policy and must never reach the browser. It lives only inside
+a Supabase Edge Function, `supabase/functions/invite-users/`, where Supabase
+injects the key from its own environment — there is no key to copy anywhere.
 
 ```bash
-npm i -g vercel
-vercel dev
+npm i -g supabase
+supabase login
+supabase link --project-ref <your-project-ref>
+supabase functions deploy invite-users
 ```
 
-Add the key to `.env` (it is gitignored, and is read only by the server-side
-function — never prefix it with `VITE_`):
+Then set the site URL so invitation emails link back to the right place:
 
-```
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+```bash
+supabase secrets set PUBLIC_SITE_URL=https://your-worker.workers.dev
 ```
 
-In production, set the same variable in **Vercel → Project Settings →
-Environment Variables**. Everything else — the user list, role edits,
-deactivation, question CRUD, cycles — works fine under plain `npm run dev`.
+Invites work from `npm run dev` too — the function runs on Supabase, not
+locally, so there is no need for a local server runtime. Until it is deployed the
+invite button reports that clearly rather than failing opaquely.
+
+> `.env` needs only the two `VITE_` values. The `service_role` key must never go
+> in `.env` or any `VITE_` variable — Vite inlines those into the bundle it ships
+> to every visitor.
+
+### 7. Deploy the front end (Cloudflare Workers)
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages →
+   Create application → Workers → Connect to Git**, and pick this repo
+2. Build command `npm run build`, deploy command `npx wrangler deploy`
+3. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` as **build-time**
+   variables (Vite inlines them into the bundle, so runtime vars are too late)
+4. Every push to `main` deploys automatically
+
+Cloudflare has closed **Pages** to new projects; Workers Static Assets is the
+supported replacement, so there is no `public/_redirects`. `wrangler.jsonc`
+serves `dist/` from the edge and its `not_found_handling` returns `index.html`
+for unmatched paths, which is what lets a hard refresh on `/admin/users` reach
+the router instead of 404ing. There is no `main` entry: the app is a pure SPA,
+so no Worker script ever runs.
+
+Team members are free on Cloudflare's plan — **Members → Invite**. That is why
+this project is not on Vercel: its Hobby tier only permits deploys from the
+account owner, so a second contributor's push fails the deployment check.
 
 ---
 
@@ -151,18 +175,26 @@ Re-check with `npm audit` before launch in case a fix has shipped.
 
 ```
 prd.md                     requirements (source of truth)
-supabase/migrations/       schema, RLS, seed, auth sync
+wrangler.jsonc             Cloudflare Workers deploy + SPA fallback
+scripts/                   unit tests, run by `npm run check`
+supabase/
+  migrations/              schema, RLS, seed, auth sync
+  functions/invite-users/  admin-only provisioning (service_role stays here)
 src/
-  lib/         supabase client, shared constants
+  lib/         supabase client, validation, form schema, submissions
+  lib/admin/   users, questions, cycles, question diffing
   context/     AuthContext — session + profile + role
-  components/  ProtectedRoute, Layout, ConfigError
-  pages/       Login, SetPassword, FeedbackHome, AdminHome, NotFound
+  components/  ProtectedRoute, Layout, fields, ConfigError
+  pages/       Login, SetPassword, FeedbackHome, FeedbackForm
+  pages/admin/ Users, Questions, Cycles
 ```
 
 ## Status
 
-Week 1 scaffolding. Auth, role-based routing and the full schema are in place;
-both panels are placeholders that read live data to prove the stack works.
+Weeks 1–3 complete: auth and role-based routing, all five forms rendering from
+the database with validation, submission and editing, and the admin panel (users,
+question CRUD with versioning, cycles).
 
-Next: **Week 2** — the form renderer and submission flow (FR-8 to FR-17).
+Next: **Week 4** — the analytics dashboard, rule-based sentiment, auto-insights
+and CSV export (FR-33 to FR-41).
 

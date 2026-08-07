@@ -1,0 +1,24 @@
+// Cloudflare Workers deployment (static assets only — no server code).
+//
+// WHY WORKERS AND NOT PAGES
+// Cloudflare closed Pages to new projects; Workers Static Assets is the
+// supported replacement. Same free tier, and unlike Vercel's Hobby tier the
+// whole team can deploy (PRD §7.1).
+//
+// There is no `main` entry: this app is a pure SPA with no server runtime, so
+// Cloudflare serves dist/ from its edge and never invokes a Worker script.
+// Anything needing privileged access runs as a Supabase Edge Function instead
+// (see supabase/functions/invite-users).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "curriculum-feedback-form",
+  "compatibility_date": "2026-08-07",
+  "assets": {
+    "directory": "./dist",
+
+    // Serves index.html for any path that is not a real file, so a hard
+    // refresh on /admin/users reaches the router instead of a 404. This is the
+    // Workers equivalent of public/_redirects, which only Pages reads.
+    "not_found_handling": "single-page-application"
+  }
+}
