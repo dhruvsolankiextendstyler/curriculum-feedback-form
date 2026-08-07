@@ -17,7 +17,20 @@
       "Bash(claude mcp *)",
       "Bash(sed -i '192d' scripts/check-validation.mjs)",
       "Bash(printf '\\\\nconsole.log\\(`\\\\\\\\n${passed} validation checks passed\\\\\\\\n`\\)\\\\n')",
-      "Bash(node scripts/check-answer-remap.mjs)"
+      "Bash(node scripts/check-answer-remap.mjs)",
+      "Bash(git rm *)",
+      "WebSearch",
+      "Bash(node -p \"require\\('./package.json'\\).devDependencies.wrangler\")",
+      "Bash(node -p \"require\\('wrangler/package.json'\\).version\")",
+      "Bash(node -p \"JSON.stringify\\(require\\('./package.json'\\).devDependencies,null,2\\)\")",
+      "Bash(npx wrangler *)",
+      "Bash(rm -f public/_redirects)",
+      "Bash(rmdir public *)",
+      "Bash(node -p \"require\\('./package.json'\\).devDependencies\")",
+      "Bash(grep -Ev \"telemetry|^$\")",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "WebFetch(domain:developers.cloudflare.com)"
     ]
   }
 }
