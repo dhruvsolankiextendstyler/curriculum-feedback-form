@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import AdminNav from '../components/AdminNav'
 import { supabase } from '../lib/supabase'
 
@@ -100,12 +101,12 @@ export default function AdminHome() {
       </div>
 
       <div className="card">
-        <h2>Still to build</h2>
-        <ul>
-          <li>Week 4 — analytics dashboard with charts and filters (FR-35 to FR-40)</li>
-          <li>Week 4 — sentiment tags and auto-insights on text answers (FR-41, FR-42)</li>
-          <li>Week 4 — CSV export of raw responses (FR-43)</li>
-        </ul>
+        <h2>Analytics</h2>
+        <p className="muted">
+          Response counts, per-question averages, distributions, year-over-year
+          trends, sentiment on written answers and CSV export (FR-34 to FR-42).
+        </p>
+        <Link to="/admin/analytics">Open analytics</Link>
       </div>
     </section>
   )

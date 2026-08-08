@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -12,6 +13,14 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import SetPassword from './pages/SetPassword'
 import { homePathFor } from './lib/constants'
+
+/**
+ * Analytics is split out of the main bundle. It pulls in recharts, which is
+ * larger than the rest of the app put together, and only admins ever open it —
+ * loading it eagerly would make several hundred students download a charting
+ * library to fill in a form (NFR-2).
+ */
+const AdminAnalytics = lazy(() => import('./pages/AdminAnalytics'))
 
 /** Sends a signed-in user to their panel; anyone else to the login screen. */
 function RootRedirect() {
@@ -101,6 +110,19 @@ export default function App() {
           <ProtectedRoute requireAdmin>
             <Layout>
               <AdminCycles />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/analytics"
+        element={
+          <ProtectedRoute requireAdmin>
+            <Layout>
+              <Suspense fallback={<p className="muted">Loading analytics…</p>}>
+                <AdminAnalytics />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }

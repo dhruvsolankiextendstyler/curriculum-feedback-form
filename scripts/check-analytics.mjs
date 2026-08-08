@@ -359,11 +359,13 @@ check('REGRESSION: identity answers are excluded by default', () => {
   assert.ok(!csv.includes('60012345'))
 })
 
-check('identity can be included deliberately', () => {
+check('identity cannot be re-enabled by passing an option', () => {
+  // Deliberately no opt-in: NFR-4 keeps personal data inside the app, and a
+  // downloaded file has already left its access controls behind.
   const withPii = [{ ...exportRow, question_key: 'name', value_text: 'Priya Sharma', value_numeric: null }]
   const { csv, rowCount } = buildCsv(withPii, { includeIdentity: true })
-  assert.equal(rowCount, 1)
-  assert.ok(csv.includes('Priya Sharma'))
+  assert.equal(rowCount, 0)
+  assert.ok(!csv.includes('Priya Sharma'))
 })
 
 check('the identity list covers the PRD profile fields', () => {

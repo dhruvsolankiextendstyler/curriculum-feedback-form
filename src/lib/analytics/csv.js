@@ -15,17 +15,18 @@
  *  2. PII. Dropping user_id and email does NOT de-identify an export, because
  *     the answers themselves carry the name, SAP number and contact details —
  *     they are just ordinary questions on the form. Identity is therefore
- *     excluded by question_key, and including it is a deliberate opt-in the
- *     caller has to ask for.
+ *     excluded by question_key, with no opt-in: NFR-4 limits personal data to
+ *     admins, and a downloaded file has left the app's access controls behind.
+ *     An admin who needs to contact a respondent can look them up in the app.
  */
 import Papa from 'papaparse'
 
 /**
  * Question keys whose ANSWERS are personally identifying.
  *
- * Derived from the profile fields in PRD §8. Excluded by default so a routine
- * export is shareable; NFR-4 limits personal data to admins, and an export
- * leaves the app's access controls behind the moment it is downloaded.
+ * Derived from the profile fields in PRD §8. Always excluded — NFR-4 limits
+ * personal data to admins, and an export leaves the app's access controls
+ * behind the moment it is downloaded, so there is no opt-in.
  */
 export const IDENTITY_KEYS = new Set([
   'name', 'full_name', 'sap_number', 'roll_number', 'contact_number', 'phone',
@@ -88,15 +89,14 @@ function toRecord(row) {
 
 /**
  * @param {object[]} rows from analytics_export_rows
- * @param {{includeIdentity?: boolean}} [options]
  * @returns {{csv: string, rowCount: number, excludedIdentityRows: number}}
  */
-export function buildCsv(rows, { includeIdentity = false } = {}) {
+export function buildCsv(rows) {
   const source = (rows ?? []).filter(Boolean)
 
-  const kept = includeIdentity
-    ? source
-    : source.filter((row) => !IDENTITY_KEYS.has(String(row.question_key ?? '').toLowerCase()))
+  const kept = source.filter(
+    (row) => !IDENTITY_KEYS.has(String(row.question_key ?? '').toLowerCase()),
+  )
 
   const csv = Papa.unparse(
     {
