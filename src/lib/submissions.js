@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { COURSE_KEYS, PROGRAM_KEYS, pickMeta } from './formSchema'
-import { answersToValues, toAnswerRow } from './validation'
+import { answersToValues, planAnswerWrite, questionIdOf } from './validation'
 
 // Re-exported for callers that treat this module as the submissions API.
 export { answersToValues }
@@ -100,9 +100,7 @@ export function remapAnswersToCurrentVersions(answers, questions) {
 
   return answers
     .map((row) => {
-      const questionId = Array.isArray(row.question_versions)
-        ? row.question_versions[0]?.question_id
-        : row.question_versions?.question_id
+      const questionId = questionIdOf(row)
 
       // No question_id (older shape) means we cannot remap; keep as-is.
       if (!questionId) return row
@@ -165,30 +163,42 @@ export async function saveSubmission({
 }
 
 /**
- * Replaces the answer set for a response.
+ * Updates the answer set for a response, preserving what the respondent did not
+ * change (FR-31, FR-32).
  *
- * Delete-then-insert rather than per-row upsert: a question that was answered
- * and is now blank must disappear, and the unique (response_id,
- * question_version_id) pair makes a partial upsert awkward. Both statements are
- * gated by the same RLS edit-window policy, so a closed cycle fails the delete
- * and leaves the stored answers untouched.
+ * Reads before writing, because two things live only in the stored rows and
+ * cannot be recovered from the form: answers to questions that have since been
+ * soft-deleted, and the version each answer was given against. planAnswerWrite
+ * decides which rows survive; see its comment for why replacing the whole set
+ * silently corrupted both.
+ *
+ * Deletes run before inserts so a changed answer can reuse its version id
+ * without tripping the unique (response_id, question_version_id) pair. Both are
+ * gated by the same RLS edit-window policy, so a closed cycle cannot write.
  */
 async function writeAnswers(responseId, questions, values) {
-  const rows = questions
-    .map((q) => toAnswerRow(q, values[q.versionId]))
-    .filter(Boolean)
-    .map((row) => ({ ...row, response_id: responseId }))
-
-  const { error: delError } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from('answers')
-    .delete()
+    .select(
+      `id, question_version_id, value_numeric, value_text, value_options,
+       question_versions!inner ( question_id )`,
+    )
     .eq('response_id', responseId)
-  if (delError) throw translateSaveError(delError)
 
-  if (rows.length === 0) return
+  if (readError) throw translateSaveError(readError)
 
-  const { error: insError } = await supabase.from('answers').insert(rows)
-  if (insError) throw translateSaveError(insError)
+  const { deleteIds, insertRows } = planAnswerWrite(existing ?? [], questions, values)
+
+  if (deleteIds.length > 0) {
+    const { error } = await supabase.from('answers').delete().in('id', deleteIds)
+    if (error) throw translateSaveError(error)
+  }
+
+  if (insertRows.length > 0) {
+    const rows = insertRows.map((row) => ({ ...row, response_id: responseId }))
+    const { error } = await supabase.from('answers').insert(rows)
+    if (error) throw translateSaveError(error)
+  }
 }
 
 /** FR-16: a respondent may withdraw a mis-filed submission before close. */

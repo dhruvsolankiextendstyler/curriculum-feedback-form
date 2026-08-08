@@ -176,6 +176,127 @@ export function toAnswerRow(question, value) {
 }
 
 /**
+ * The question a stored answer belongs to, from the embedded question_versions
+ * join. PostgREST returns an embedded to-one as an object or, depending on how
+ * the relationship is inferred, a one-element array — so both are accepted.
+ */
+export function questionIdOf(row) {
+  return Array.isArray(row.question_versions)
+    ? row.question_versions[0]?.question_id ?? null
+    : row.question_versions?.question_id ?? null
+}
+
+/**
+ * Decides what a resave does to each stored answer (FR-31, FR-32).
+ *
+ * Replacing the whole answer set — delete every row, insert what the form is
+ * showing — loses two things that cannot be reconstructed afterwards:
+ *
+ *   1. Answers to a question that has since been soft-deleted. They have no
+ *      field on the live form, so they are not among the rows being written and
+ *      the blanket delete destroys them. FR-32 promises the opposite: a deleted
+ *      question leaves the form but its data stays in analytics. Under the old
+ *      behaviour a respondent fixing a typo in their course title silently
+ *      erased their answer, so the recorded response count decayed over a cycle
+ *      with nothing to show for it.
+ *
+ *   2. The version each answer was actually given against. Re-inserting an
+ *      untouched answer at the question's current version rewrites history,
+ *      which is what FR-31 exists to prevent — and it hides the FR-34 warning
+ *      that an average spans reworded variants, because the evidence for that
+ *      warning is precisely which versions the answers sit on.
+ *
+ * So a row is rewritten only when its value actually changed. Everything else
+ * is left exactly as stored.
+ *
+ * @param {object[]} existing  rows from `answers`, each carrying its id and the
+ *                             embedded question_versions.question_id
+ * @param {object[]} questions the live form's questions, at current versions
+ * @param {object} values      form values, keyed by current version id
+ * @returns {{ keepIds: string[], deleteIds: string[], insertRows: object[] }}
+ */
+export function planAnswerWrite(existing, questions, values) {
+  const liveByQuestionId = new Map(questions.map((q) => [q.id, q]))
+
+  const keepIds = []
+  const deleteIds = []
+  const insertRows = []
+
+  // Split the stored rows by the question they answer. A row whose question is
+  // not on the live form is kept untouched: either it was soft-deleted, or the
+  // join came back in a shape we cannot read, and destroying data is the worse
+  // failure in both cases.
+  const storedByQuestionId = new Map()
+  for (const row of existing) {
+    const questionId = questionIdOf(row)
+    if (!questionId || !liveByQuestionId.has(questionId)) {
+      keepIds.push(row.id)
+      continue
+    }
+    const rows = storedByQuestionId.get(questionId)
+    if (rows) rows.push(row)
+    else storedByQuestionId.set(questionId, [row])
+  }
+
+  for (const question of questions) {
+    const stored = storedByQuestionId.get(question.id) ?? []
+    const desired = toAnswerRow(question, values[question.versionId])
+
+    // Answered before, blank now — the respondent cleared the field.
+    if (!desired) {
+      for (const row of stored) deleteIds.push(row.id)
+      continue
+    }
+
+    // Unchanged: keep the stored row, still pointing at the wording it was
+    // given against. `find` rather than a single lookup because one response can
+    // legitimately hold rows on two versions of the same question — the unique
+    // constraint is per version, not per question.
+    const unchanged = stored.find((row) => sameAnswer(row, desired))
+    if (unchanged) {
+      keepIds.push(unchanged.id)
+      for (const row of stored) {
+        if (row.id !== unchanged.id) deleteIds.push(row.id)
+      }
+      continue
+    }
+
+    for (const row of stored) deleteIds.push(row.id)
+    insertRows.push(desired)
+  }
+
+  return { keepIds, deleteIds, insertRows }
+}
+
+/** True when a stored row already holds the answer a save is about to write. */
+function sameAnswer(stored, desired) {
+  return (
+    sameText(stored.value_text, desired.value_text) &&
+    sameNumber(stored.value_numeric, desired.value_numeric) &&
+    sameOptions(stored.value_options, desired.value_options)
+  )
+}
+
+const isNullish = (value) => value === null || value === undefined
+
+const sameText = (a, b) => (isNullish(a) ? isNullish(b) : !isNullish(b) && a === b)
+
+/** numeric comes back from PostgREST as a number, but string-safe either way. */
+const sameNumber = (a, b) =>
+  isNullish(a) ? isNullish(b) : !isNullish(b) && Number(a) === Number(b)
+
+function sameOptions(a, b) {
+  const left = a ?? []
+  const right = b ?? []
+  if (left.length !== right.length) return false
+  // A multi_select is a set: re-ticking the same boxes in a different order is
+  // not a change, and re-versioning over it would be a false FR-34 signal.
+  const sortedLeft = [...left].sort()
+  const sortedRight = [...right].sort()
+  return sortedLeft.every((value, i) => value === sortedRight[i])
+}
+
+/**
  * Which row a save should target, given the current route and any id produced
  * by an earlier save in this same mount (FR-13, FR-15).
  *
