@@ -42,6 +42,7 @@ In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CL
 | `0002_rls.sql` | RLS policies, the edit-window gate, privilege guards |
 | `0003_seed.sql` | All 5 forms, their 4 rating scales, every question from PRD §8, first cycle |
 | `0004_auth_sync.sql` | Mirrors `auth.users` into `profiles` on invite |
+| `0005_analytics.sql` | Admin-only aggregate functions behind the dashboard |
 
 ### 4. Create the first admin
 
@@ -144,6 +145,43 @@ comparable across forms — normalise before comparing. Non-scoring options
 (`Not applicable`) carry a `NULL` score and are excluded from averages rather
 than counting as zero.
 
+The analytics layer enforces both. Bounds come from `rating_scale_options` per
+scale, never a literal `5`: a faculty question averaging 3.5 is 83% of its
+range, and assuming a 5-point scale would report 63% and make faculty look
+systematically harsher than everyone else. A chart whose rows span two scales is
+drawn on a normalised axis with a caption, because a mixed raw axis is not
+merely discouraged — `axisFor()` will not return one.
+
+Every rating carries three separate denominators: `n_answers` for distributions,
+`n_scored` for averages, and their difference for the non-scoring options.
+Sharing one denominator is what makes Likert bars appear to sum past 100%.
+
+### Analytics reads are admin-only, and fail loudly
+
+The functions in `0005_analytics.sql` are `SECURITY INVOKER`, so RLS decides
+which rows a caller sees exactly as it would for a plain `select`. On its own
+that is not enough: a non-admin would simply see aggregates of their own two
+responses and have no way to tell. `analytics_admin_ok()` raises instead.
+
+The table-returning functions are `plpgsql` rather than `sql` for that reason.
+In a `sql` body the guard sits inside the row-producing path, and when RLS
+empties that path the planner skips the guard entirely — the non-admin then gets
+a dashboard of zeros rather than an error. `perform` runs before any row work.
+
+Note also that `revoke execute ... from anon` does nothing on its own:
+`create function` grants to `PUBLIC`, and `anon` inherits through it. The
+migration revokes from `PUBLIC` and grants back to `authenticated`.
+
+### The CSV export excludes identity
+
+Dropping `user_id` does not de-identify an export. The respondent's name, SAP
+number and contact details are *answers* — ordinary questions on the form — so
+they are excluded by `question_key` with no opt-in. A downloaded file has left
+the app's access controls behind, and NFR-4 keeps personal data inside them.
+
+Free text is written through papaparse with `escapeFormulae`, since a quoted
+cell is still an executable formula when an admin opens the file in Excel.
+
 ---
 
 ## Before onboarding real users
@@ -178,23 +216,30 @@ prd.md                     requirements (source of truth)
 wrangler.jsonc             Cloudflare Workers deploy + SPA fallback
 scripts/                   unit tests, run by `npm run check`
 supabase/
-  migrations/              schema, RLS, seed, auth sync
+  migrations/              schema, RLS, seed, auth sync, analytics
   functions/invite-users/  admin-only provisioning (service_role stays here)
 src/
-  lib/         supabase client, validation, form schema, submissions
-  lib/admin/   users, questions, cycles, question diffing
-  context/     AuthContext — session + profile + role
-  components/  ProtectedRoute, Layout, fields, ConfigError
-  pages/       Login, SetPassword, FeedbackHome, FeedbackForm
-  pages/admin/ Users, Questions, Cycles
+  lib/             supabase client, validation, form schema, submissions
+  lib/admin/       users, questions, cycles, question diffing
+  lib/analytics/   RPC wrappers, scale normalising, sentiment, insights, CSV
+  context/         AuthContext — session + profile + role
+  components/      ProtectedRoute, Layout, fields, ConfigError
+  components/admin/ AnalyticsCharts
+  pages/           Login, SetPassword, FeedbackHome, FeedbackForm
+  pages/           AdminUsers, AdminQuestions, AdminCycles, AdminAnalytics
 ```
 
 ## Status
 
-Weeks 1–3 complete: auth and role-based routing, all five forms rendering from
-the database with validation, submission and editing, and the admin panel (users,
-question CRUD with versioning, cycles).
+Weeks 1–4 complete: auth and role-based routing, all five forms rendering from
+the database with validation, submission and editing, the admin panel (users,
+question CRUD with versioning, cycles), and the analytics dashboard — response
+counts, per-question averages and distributions, year-over-year trends,
+rule-based sentiment with auto-insights, and CSV export (FR-34 to FR-42).
 
-Next: **Week 4** — the analytics dashboard, rule-based sentiment, auto-insights
-and CSV export (FR-33 to FR-41).
+Run `npm run check` for the unit tests: 184 assertions over redirect safety,
+validation, admin logic, answer remapping across question versions, and the
+analytics scale/sentiment/insight/CSV rules.
+
+Not built: the optional PDF export (FR-43).
 
