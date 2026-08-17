@@ -48,7 +48,7 @@ export const supabase = isSupabaseConfigured
       auth: {
         persistSession: true, // FR-6: session survives a refresh
         autoRefreshToken: true,
-        detectSessionInUrl: true, // invite + password-reset links land back here
+        detectSessionInUrl: true, // password-reset links land back here
       },
     })
   : null

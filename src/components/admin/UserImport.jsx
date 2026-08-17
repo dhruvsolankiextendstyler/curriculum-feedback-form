@@ -6,19 +6,13 @@ import { loadAllEmails } from '../../lib/admin/users'
 
 const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
-/**
- * Invite panel (FR-23, FR-24): one user at a time, or a CSV batch.
- *
- * The CSV path validates every row against existing accounts BEFORE sending
- * anything, so a typo in row 300 is reported up front rather than after 299
- * invite emails have gone out.
- */
-export default function UserImport({ invite, onDone, onError }) {
+/** Adds one user or a validated CSV batch without sending email invitations. */
+export default function UserImport({ create, onDone, onError }) {
   const [mode, setMode] = useState('single')
 
   return (
     <div className="import-panel">
-      <div className="tab-row" role="tablist" aria-label="Invite method">
+      <div className="tab-row" role="tablist" aria-label="Add users method">
         <button
           type="button"
           role="tab"
@@ -40,29 +34,45 @@ export default function UserImport({ invite, onDone, onError }) {
       </div>
 
       {mode === 'single' ? (
-        <SingleInvite invite={invite} onDone={onDone} onError={onError} />
+        <SingleUser create={create} onDone={onDone} onError={onError} />
       ) : (
-        <CsvInvite invite={invite} onDone={onDone} onError={onError} />
+        <CsvUsers create={create} onDone={onDone} onError={onError} />
       )}
     </div>
   )
 }
 
-function SingleInvite({ invite, onDone, onError }) {
-  const [form, setForm] = useState({ email: '', full_name: '', role: ROLES.STUDENT })
+function SingleUser({ create, onDone, onError }) {
+  const [form, setForm] = useState({
+    email: '',
+    full_name: '',
+    role: ROLES.STUDENT,
+    temporary_password: '',
+  })
+  const [credential, setCredential] = useState(null)
   const [busy, setBusy] = useState(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
     setBusy(true)
+    setCredential(null)
     try {
-      const result = await invite([form])
+      const result = await create([form])
       const outcome = result.results?.[0]
-      if (outcome?.status === 'invited') {
-        onDone(`Invitation sent to ${form.email}.`)
-        setForm({ email: '', full_name: '', role: ROLES.STUDENT })
+      if (outcome?.status === 'created') {
+        setCredential({
+          email: outcome.email,
+          temporary_password: outcome.temporary_password,
+        })
+        onDone(`${form.email} was added.`)
+        setForm({
+          email: '',
+          full_name: '',
+          role: ROLES.STUDENT,
+          temporary_password: '',
+        })
       } else {
-        onError(`${form.email}: ${outcome?.reason ?? 'invite failed'}`)
+        onError(`${form.email}: ${outcome?.reason ?? 'user creation failed'}`)
       }
     } catch (err) {
       onError(err.message)
@@ -73,46 +83,78 @@ function SingleInvite({ invite, onDone, onError }) {
 
   return (
     <form onSubmit={handleSubmit}>
-      <label htmlFor="invite-email">Email</label>
+      <label htmlFor="create-email">Email</label>
       <input
-        id="invite-email"
+        id="create-email"
         type="email"
         required
         value={form.email}
-        onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, email: event.target.value }))
+        }
       />
 
-      <label htmlFor="invite-name">Full name</label>
+      <label htmlFor="create-name">Full name</label>
       <input
-        id="invite-name"
+        id="create-name"
         type="text"
         value={form.full_name}
-        onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, full_name: event.target.value }))
+        }
       />
 
-      <label htmlFor="invite-role">Role</label>
+      <label htmlFor="create-role">Role</label>
       <select
-        id="invite-role"
+        id="create-role"
         value={form.role}
-        onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, role: event.target.value }))
+        }
       >
-        {ALL_ROLES.map((r) => (
-          <option key={r} value={r}>
-            {ROLE_LABELS[r]}
+        {ALL_ROLES.map((role) => (
+          <option key={role} value={role}>
+            {ROLE_LABELS[role]}
           </option>
         ))}
       </select>
 
+      <label htmlFor="create-password">Temporary password</label>
+      <input
+        id="create-password"
+        type="password"
+        autoComplete="new-password"
+        minLength={8}
+        maxLength={72}
+        placeholder="Leave blank to generate"
+        value={form.temporary_password}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, temporary_password: event.target.value }))
+        }
+      />
+
       <button type="submit" disabled={busy}>
-        {busy ? 'Sending…' : 'Send invitation'}
+        {busy ? 'Adding...' : 'Add user'}
       </button>
+
+      {credential && (
+        <div className="notice success credential-result" role="status">
+          <p>
+            <strong>{credential.email}</strong>
+          </p>
+          <p>
+            Temporary password: <code>{credential.temporary_password}</code>
+          </p>
+        </div>
+      )}
     </form>
   )
 }
 
-function CsvInvite({ invite, onDone, onError }) {
+function CsvUsers({ create, onDone, onError }) {
   const fileRef = useRef(null)
   const [preview, setPreview] = useState(null)
+  const [credentials, setCredentials] = useState([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(null)
 
@@ -121,6 +163,7 @@ function CsvInvite({ invite, onDone, onError }) {
     if (!file) return
 
     setPreview(null)
+    setCredentials([])
     setProgress(null)
 
     Papa.parse(file, {
@@ -142,26 +185,34 @@ function CsvInvite({ invite, onDone, onError }) {
     })
   }
 
-  async function handleSend() {
+  async function handleCreate() {
     if (!preview?.valid.length) return
     setBusy(true)
+    setCredentials([])
     setProgress({ done: 0, total: preview.valid.length })
 
     try {
-      const result = await invite(preview.valid, setProgress)
-      const parts = [`${result.invited} invited`]
+      const result = await create(preview.valid, setProgress)
+      const parts = [`${result.created} created`]
       if (result.skipped) parts.push(`${result.skipped} already registered`)
       if (result.failed) parts.push(`${result.failed} failed`)
-      onDone(parts.join(', ') + '.')
+      onDone(`${parts.join(', ')}.`)
 
-      // Surface per-row failures; the summary alone would hide which addresses.
-      const failures = (result.results ?? []).filter((r) => r.status === 'failed')
+      const created = (result.results ?? [])
+        .filter((row) => row.status === 'created')
+        .map((row) => ({
+          email: row.email,
+          temporary_password: row.temporary_password,
+        }))
+      setCredentials(created)
+
+      const failures = (result.results ?? []).filter((row) => row.status === 'failed')
       if (failures.length) {
         onError(
           `Failed: ${failures
             .slice(0, 5)
-            .map((f) => `${f.email} (${f.reason})`)
-            .join('; ')}${failures.length > 5 ? ` … and ${failures.length - 5} more` : ''}`,
+            .map((failure) => `${failure.email} (${failure.reason})`)
+            .join('; ')}${failures.length > 5 ? ` and ${failures.length - 5} more` : ''}`,
         )
       }
 
@@ -176,20 +227,19 @@ function CsvInvite({ invite, onDone, onError }) {
   }
 
   function downloadTemplate() {
-    const blob = new Blob([CSV_TEMPLATE], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'user-import-template.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadText(CSV_TEMPLATE, 'user-import-template.csv')
+  }
+
+  function downloadCredentials() {
+    const csv = Papa.unparse(credentials, { header: true, escapeFormulae: true })
+    downloadText(csv, 'new-user-temporary-passwords.csv')
   }
 
   return (
     <div>
       <p className="muted">
-        Columns: <code>email</code>, <code>full_name</code>, <code>role</code>.
-        Rows are checked before any invitation is sent.
+        Columns: <code>email</code>, <code>full_name</code>, <code>role</code>, and
+        optional <code>temporary_password</code>.
       </p>
 
       <div className="button-row">
@@ -199,12 +249,27 @@ function CsvInvite({ invite, onDone, onError }) {
       </div>
 
       <label htmlFor="csv-file">CSV file</label>
-      <input id="csv-file" ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} />
+      <input
+        id="csv-file"
+        ref={fileRef}
+        type="file"
+        accept=".csv,text/csv"
+        onChange={handleFile}
+      />
+
+      {credentials.length > 0 && (
+        <div className="notice success credential-result" role="status">
+          <p>{credentials.length} temporary password file ready.</p>
+          <button type="button" className="secondary" onClick={downloadCredentials}>
+            Download temporary passwords
+          </button>
+        </div>
+      )}
 
       {preview && (
         <div className="preview">
           <h3>
-            {preview.valid.length} ready to invite
+            {preview.valid.length} ready to add
             {preview.invalid.length > 0 && `, ${preview.invalid.length} skipped`}
           </h3>
 
@@ -214,11 +279,11 @@ function CsvInvite({ invite, onDone, onError }) {
               <ul className="issue-list">
                 {preview.invalid.slice(0, 50).map((row) => (
                   <li key={`${row.line}-${row.email}`}>
-                    Line {row.line}: {row.email || '(no email)'} — {row.reason}
+                    Line {row.line}: {row.email || '(no email)'} - {row.reason}
                   </li>
                 ))}
                 {preview.invalid.length > 50 && (
-                  <li className="muted">… and {preview.invalid.length - 50} more</li>
+                  <li className="muted">and {preview.invalid.length - 50} more</li>
                 )}
               </ul>
             </details>
@@ -230,7 +295,7 @@ function CsvInvite({ invite, onDone, onError }) {
               <ul className="issue-list">
                 {preview.valid.slice(0, 10).map((row) => (
                   <li key={row.email}>
-                    {row.email} — {ROLE_LABELS[row.role]}
+                    {row.email} - {ROLE_LABELS[row.role]}
                     {row.full_name ? ` (${row.full_name})` : ''}
                   </li>
                 ))}
@@ -238,16 +303,15 @@ function CsvInvite({ invite, onDone, onError }) {
             </details>
           )}
 
-          <p className="muted small">
-            Invites are sent in batches of 25 to stay inside the email provider's
-            rate limit. Keep this tab open until it finishes.
-          </p>
-
           <div className="button-row">
-            <button type="button" onClick={handleSend} disabled={busy || !preview.valid.length}>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={busy || !preview.valid.length}
+            >
               {busy
-                ? `Sending… ${progress?.done ?? 0}/${progress?.total ?? 0}`
-                : `Send ${preview.valid.length} invitation${preview.valid.length === 1 ? '' : 's'}`}
+                ? `Adding... ${progress?.done ?? 0}/${progress?.total ?? 0}`
+                : `Add ${preview.valid.length} user${preview.valid.length === 1 ? '' : 's'}`}
             </button>
             <button
               type="button"
@@ -271,4 +335,14 @@ function CsvInvite({ invite, onDone, onError }) {
       )}
     </div>
   )
+}
+
+function downloadText(text, fileName) {
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
 }

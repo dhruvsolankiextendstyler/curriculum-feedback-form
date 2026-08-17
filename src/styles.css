@@ -619,6 +619,17 @@ li.submission .button-row {
   color: var(--muted);
 }
 
+.pill.removed {
+  border-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.account-note {
+  display: block;
+  white-space: nowrap;
+}
+
 .pill.state-scheduled {
   border-color: var(--accent);
   background: #eaf1fa;
@@ -663,7 +674,7 @@ button.version-pill {
   accent-color: var(--accent);
 }
 
-/* ---------- invite panel ---------- */
+/* ---------- user creation panel ---------- */
 .tab-row {
   display: flex;
   gap: 4px;
@@ -698,6 +709,20 @@ button.version-pill {
   margin-top: 16px;
   padding-top: 4px;
   border-top: 1px solid var(--border);
+}
+
+.credential-result {
+  margin-top: 16px;
+  margin-bottom: 0;
+}
+
+.credential-result code {
+  user-select: all;
+  word-break: break-all;
+}
+
+.credential-result button {
+  margin-top: 8px;
 }
 
 .preview {

@@ -4,18 +4,26 @@ import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
 import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../lib/constants'
 import {
-  inviteUsers,
+  createUsers,
   loadUsers,
+  removeUser,
+  restoreUser,
   setUserStatus,
   updateUser,
 } from '../lib/admin/users'
 
 const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
-/** FR-19 to FR-24: user list, single invite, inline edit, deactivate, CSV import. */
+/** FR-19 to FR-23: direct creation, editing, filtering and soft removal. */
 export default function AdminUsers() {
   const { user: currentUser } = useAuth()
-  const [filters, setFilters] = useState({ role: '', status: '', search: '' })
+  const [filters, setFilters] = useState({
+    view: 'current',
+    role: '',
+    status: '',
+    search: '',
+    sort: 'recent',
+  })
   const [users, setUsers] = useState([])
   const [state, setState] = useState({ loading: true, error: null })
   const [notice, setNotice] = useState(null)
@@ -46,7 +54,34 @@ export default function AdminUsers() {
       setNotice(`${target.email} is now ${next}.`)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      setState((current) => ({ ...current, error: err.message }))
+    }
+  }
+
+  async function handleRemove(target) {
+    const confirmed = window.confirm(
+      `Remove ${target.email} from the current users list? Their account will be blocked, but their feedback and database record will be preserved.`,
+    )
+    if (!confirmed) return
+
+    try {
+      await removeUser(target.id, currentUser.id)
+      setNotice(`${target.email} moved to Removed users.`)
+      await refresh()
+    } catch (err) {
+      setState((current) => ({ ...current, error: err.message }))
+    }
+  }
+
+  async function handleRestore(target) {
+    if (!window.confirm(`Restore ${target.email} to the current users list?`)) return
+
+    try {
+      await restoreUser(target.id)
+      setNotice(`${target.email} restored.`)
+      await refresh()
+    } catch (err) {
+      setState((current) => ({ ...current, error: err.message }))
     }
   }
 
@@ -61,9 +96,11 @@ export default function AdminUsers() {
       setEditing(null)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      setState((current) => ({ ...current, error: err.message }))
     }
   }
+
+  const removedView = filters.view === 'removed'
 
   return (
     <section>
@@ -83,8 +120,8 @@ export default function AdminUsers() {
 
       <div className="card">
         <div className="button-row">
-          <button type="button" onClick={() => setShowImport((v) => !v)}>
-            {showImport ? 'Hide invite panel' : 'Invite users'}
+          <button type="button" onClick={() => setShowImport((visible) => !visible)}>
+            {showImport ? 'Hide add-user panel' : 'Add users'}
           </button>
         </div>
 
@@ -94,24 +131,42 @@ export default function AdminUsers() {
               setNotice(summary)
               await refresh()
             }}
-            onError={(message) => setState((s) => ({ ...s, error: message }))}
-            invite={inviteUsers}
+            onError={(message) =>
+              setState((current) => ({ ...current, error: message }))
+            }
+            create={createUsers}
           />
         )}
       </div>
 
       <div className="card filters">
         <div>
+          <label htmlFor="filter-list">User list</label>
+          <select
+            id="filter-list"
+            value={filters.view}
+            onChange={(event) => {
+              setEditing(null)
+              setFilters((current) => ({ ...current, view: event.target.value }))
+            }}
+          >
+            <option value="current">Current users</option>
+            <option value="removed">Removed users</option>
+          </select>
+        </div>
+        <div>
           <label htmlFor="filter-role">Role</label>
           <select
             id="filter-role"
             value={filters.role}
-            onChange={(e) => setFilters((f) => ({ ...f, role: e.target.value }))}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, role: event.target.value }))
+            }
           >
             <option value="">All roles</option>
-            {ALL_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {ROLE_LABELS[r]}
+            {ALL_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {ROLE_LABELS[role]}
               </option>
             ))}
           </select>
@@ -121,11 +176,29 @@ export default function AdminUsers() {
           <select
             id="filter-status"
             value={filters.status}
-            onChange={(e) => setFilters((f) => ({ ...f, status: e.target.value }))}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, status: event.target.value }))
+            }
           >
             <option value="">Any status</option>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="filter-sort">Sort</label>
+          <select
+            id="filter-sort"
+            value={filters.sort}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, sort: event.target.value }))
+            }
+          >
+            <option value="recent">{removedView ? 'Recently removed' : 'Recently added'}</option>
+            <option value="oldest">Oldest first</option>
+            <option value="name_asc">Name A-Z</option>
+            <option value="name_desc">Name Z-A</option>
+            <option value="email_asc">Email A-Z</option>
           </select>
         </div>
         <div className="grow">
@@ -135,18 +208,23 @@ export default function AdminUsers() {
             type="search"
             placeholder="Name or email"
             value={filters.search}
-            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+            onChange={(event) =>
+              setFilters((current) => ({ ...current, search: event.target.value }))
+            }
           />
         </div>
       </div>
 
       {state.loading ? (
-        <p className="muted">Loading users…</p>
+        <p className="muted">Loading users...</p>
       ) : users.length === 0 ? (
         <p className="muted">No users match these filters.</p>
       ) : (
         <>
-          <p className="muted">{users.length} user{users.length === 1 ? '' : 's'}</p>
+          <p className="muted">
+            {users.length} {removedView ? 'removed ' : ''}user
+            {users.length === 1 ? '' : 's'}
+          </p>
           <div className="table-wrap">
             <table className="data-table">
               <thead>
@@ -155,40 +233,77 @@ export default function AdminUsers() {
                   <th scope="col">Email</th>
                   <th scope="col">Role</th>
                   <th scope="col">Status</th>
-                  <th scope="col">Invite</th>
+                  <th scope="col">{removedView ? 'Removed' : 'Added'}</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
-                  <tr key={u.id} className={u.status === 'inactive' ? 'row-muted' : ''}>
-                    <td>{u.full_name || <span className="muted">—</span>}</td>
-                    <td>{u.email}</td>
-                    <td>{ROLE_LABELS[u.role] ?? u.role}</td>
+                {users.map((user) => (
+                  <tr
+                    key={user.id}
+                    className={removedView || user.status === 'inactive' ? 'row-muted' : ''}
+                  >
+                    <td>{user.full_name || <span className="muted">-</span>}</td>
+                    <td>{user.email}</td>
+                    <td>{ROLE_LABELS[user.role] ?? user.role}</td>
                     <td>
-                      <span className={`pill ${u.status}`}>{u.status}</span>
-                    </td>
-                    <td className="muted small">{u.invite_status}</td>
-                    <td className="actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => setEditing({ ...u })}
-                      >
-                        Edit
-                      </button>
-                      {u.id === currentUser?.id ? (
-                        <span className="muted small">that's you</span>
+                      {removedView ? (
+                        <span className="pill removed">Removed</span>
                       ) : (
+                        <>
+                          <span className={`pill ${user.status}`}>{user.status}</span>
+                          {user.must_change_password && (
+                            <span className="muted small account-note">
+                              Temporary password
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </td>
+                    <td className="muted small">
+                      {formatDate(removedView ? user.removed_at : user.created_at)}
+                    </td>
+                    <td className="actions">
+                      {removedView ? (
                         <button
                           type="button"
-                          className="secondary danger"
-                          onClick={() => handleToggleStatus(u)}
+                          className="secondary"
+                          onClick={() => handleRestore(user)}
                         >
-                          {u.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                          Restore
                         </button>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setEditing({ ...user })}
+                          >
+                            Edit
+                          </button>
+                          {user.id === currentUser?.id ? (
+                            <span className="muted small">that's you</span>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => handleToggleStatus(user)}
+                              >
+                                {user.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary danger"
+                                onClick={() => handleRemove(user)}
+                              >
+                                Remove
+                              </button>
+                            </>
+                          )}
+                        </>
                       )}
                     </td>
                   </tr>
@@ -199,7 +314,7 @@ export default function AdminUsers() {
         </>
       )}
 
-      {editing && (
+      {editing && !removedView && (
         <div className="card edit-panel">
           <h2>Edit {editing.email}</h2>
           <form onSubmit={handleSaveEdit}>
@@ -208,25 +323,25 @@ export default function AdminUsers() {
               id="edit-name"
               type="text"
               value={editing.full_name ?? ''}
-              onChange={(e) => setEditing((x) => ({ ...x, full_name: e.target.value }))}
+              onChange={(event) =>
+                setEditing((current) => ({ ...current, full_name: event.target.value }))
+              }
             />
 
             <label htmlFor="edit-role">Role</label>
             <select
               id="edit-role"
               value={editing.role}
-              onChange={(e) => setEditing((x) => ({ ...x, role: e.target.value }))}
+              onChange={(event) =>
+                setEditing((current) => ({ ...current, role: event.target.value }))
+              }
             >
-              {ALL_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
+              {ALL_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_LABELS[role]}
                 </option>
               ))}
             </select>
-            <p className="muted small">
-              Changing a role sends this user to a different feedback form. Any
-              feedback they have already given stays as it is.
-            </p>
 
             <div className="button-row">
               <button type="submit">Save changes</button>
@@ -239,4 +354,13 @@ export default function AdminUsers() {
       )}
     </section>
   )
+}
+
+function formatDate(value) {
+  if (!value) return '-'
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value))
 }

@@ -6,7 +6,7 @@ import { ROLES } from '../constants.js'
  * CSV parsing and validation for bulk user import (FR-23).
  *
  * Pure so it is unit-testable: the whole point of this file is catching bad
- * rows before any of them reach the invite endpoint.
+ * rows before any of them reach the account-provisioning endpoint.
  */
 
 export const VALID_ROLES = new Set(Object.values(ROLES))
@@ -16,6 +16,7 @@ const HEADER_ALIASES = {
   email: ['email', 'email address', 'e-mail', 'mail'],
   full_name: ['full_name', 'full name', 'name', 'fullname'],
   role: ['role', 'user role', 'type', 'stakeholder', 'stakeholder type'],
+  temporary_password: ['temporary_password', 'temporary password', 'password'],
 }
 
 /** Human labels accepted in the role column, alongside the raw enum values. */
@@ -73,14 +74,16 @@ export function validateCsvRows(rows, existingEmails = []) {
     return {
       valid: [],
       invalid: [],
-      headerError: 'No "email" column found. Expected headers: email, full_name, role.',
+      headerError:
+        'No "email" column found. Expected headers: email, full_name, role, temporary_password (optional).',
     }
   }
   if (columns.role === undefined) {
     return {
       valid: [],
       invalid: [],
-      headerError: 'No "role" column found. Expected headers: email, full_name, role.',
+      headerError:
+        'No "role" column found. Expected headers: email, full_name, role, temporary_password (optional).',
     }
   }
 
@@ -98,6 +101,10 @@ export function validateCsvRows(rows, existingEmails = []) {
         : ''
     const rawRole = String(row[columns.role] ?? '').trim()
     const role = normaliseRole(rawRole)
+    const temporaryPassword =
+      columns.temporary_password !== undefined
+        ? String(row[columns.temporary_password] ?? '')
+        : ''
 
     if (!isEmail(email)) {
       invalid.push({ line: lineNo, email, reason: 'Invalid email address.' })
@@ -111,6 +118,17 @@ export function validateCsvRows(rows, existingEmails = []) {
       })
       return
     }
+    if (
+      temporaryPassword &&
+      (temporaryPassword.length < 8 || temporaryPassword.length > 72)
+    ) {
+      invalid.push({
+        line: lineNo,
+        email,
+        reason: 'Temporary password must be between 8 and 72 characters.',
+      })
+      return
+    }
     if (seen.has(email)) {
       invalid.push({ line: lineNo, email, reason: 'Duplicate row in this file.' })
       return
@@ -121,18 +139,20 @@ export function validateCsvRows(rows, existingEmails = []) {
     }
 
     seen.add(email)
-    valid.push({ line: lineNo, email, full_name: fullName, role })
+    valid.push({
+      line: lineNo,
+      email,
+      full_name: fullName,
+      role,
+      temporary_password: temporaryPassword,
+    })
   })
 
   return { valid, invalid, headerError: null }
 }
 
 /**
- * Splits an invite list into paced batches (FR-24).
- *
- * Supabase's own sender allows only a few emails per hour; a third-party SMTP
- * free tier typically allows a few hundred per day. Batching keeps a 500-user
- * import inside those limits and gives the UI something to report progress on.
+ * Splits an account list into bounded Edge Function requests.
  */
 export function chunk(items, size = 25) {
   if (size < 1) throw new Error('Batch size must be at least 1.')
@@ -141,7 +161,7 @@ export function chunk(items, size = 25) {
   return out
 }
 
-export const CSV_TEMPLATE = 'email,full_name,role\n' +
-  'student1@college.edu,Asha Rao,student\n' +
-  'prof@college.edu,R. Menon,faculty\n' +
-  'hr@acme.com,Industry Contact,employer\n'
+export const CSV_TEMPLATE = 'email,full_name,role,temporary_password\n' +
+  'student1@college.edu,Asha Rao,student,\n' +
+  'prof@college.edu,R. Menon,faculty,ChangeMe123!\n' +
+  'hr@acme.com,Industry Contact,employer,\n'

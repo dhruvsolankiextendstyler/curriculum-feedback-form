@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AdminNav from '../components/AdminNav'
 import {
   activateCycle,
@@ -26,6 +26,7 @@ export default function AdminCycles() {
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)
   const [creating, setCreating] = useState(false)
+  const [sort, setSort] = useState('recent')
 
   const refresh = useCallback(async () => {
     setState({ loading: true, error: null })
@@ -42,6 +43,8 @@ export default function AdminCycles() {
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  const sortedCycles = useMemo(() => sortCycles(cycles, sort), [cycles, sort])
 
   const act = async (fn, message) => {
     setNotice(null)
@@ -125,74 +128,92 @@ export default function AdminCycles() {
           No cycles yet. Create one before respondents can give feedback.
         </p>
       ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th scope="col">Cycle</th>
-                <th scope="col">Status</th>
-                <th scope="col">Opens</th>
-                <th scope="col">Closes</th>
-                <th scope="col">Responses</th>
-                <th scope="col">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {cycles.map((cycle) => {
-                const status = cycleState(cycle)
-                return (
-                  <tr key={cycle.id} className={status === 'closed' ? 'row-muted' : ''}>
-                    <td>
-                      <strong>{cycle.label}</strong>
-                    </td>
-                    <td>
-                      <span className={`pill state-${status}`}>
-                        {CYCLE_STATE_LABELS[status]}
-                      </span>
-                    </td>
-                    <td className="small">{formatDate(cycle.opens_at)}</td>
-                    <td className="small">{formatDate(cycle.closes_at)}</td>
-                    <td>{counts[cycle.id] ?? 0}</td>
-                    <td className="actions">
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => setEditing(cycle)}
-                      >
-                        Edit
-                      </button>
-                      {!cycle.is_active && status !== 'closed' && (
+        <>
+          <div className="card filters">
+            <div>
+              <label htmlFor="cycle-sort">Sort</label>
+              <select
+                id="cycle-sort"
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+              >
+                <option value="recent">Most recent</option>
+                <option value="oldest">Oldest first</option>
+                <option value="label_asc">Label A–Z</option>
+                <option value="label_desc">Label Z–A</option>
+                <option value="status">Status</option>
+              </select>
+            </div>
+          </div>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Cycle</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Opens</th>
+                  <th scope="col">Closes</th>
+                  <th scope="col">Responses</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedCycles.map((cycle) => {
+                  const status = cycleState(cycle)
+                  return (
+                    <tr key={cycle.id} className={status === 'closed' ? 'row-muted' : ''}>
+                      <td>
+                        <strong>{cycle.label}</strong>
+                      </td>
+                      <td>
+                        <span className={`pill state-${status}`}>
+                          {CYCLE_STATE_LABELS[status]}
+                        </span>
+                      </td>
+                      <td className="small">{formatDate(cycle.opens_at)}</td>
+                      <td className="small">{formatDate(cycle.closes_at)}</td>
+                      <td>{counts[cycle.id] ?? 0}</td>
+                      <td className="actions">
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() =>
-                            act(
-                              () => activateCycle(cycle.id),
-                              `"${cycle.label}" is now the active cycle.`,
-                            )
-                          }
+                          onClick={() => setEditing(cycle)}
                         >
-                          Make active
+                          Edit
                         </button>
-                      )}
-                      {status === 'open' && (
-                        <button
-                          type="button"
-                          className="secondary danger"
-                          onClick={() => handleClose(cycle)}
-                        >
-                          Close now
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                        {!cycle.is_active && status !== 'closed' && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() =>
+                              act(
+                                () => activateCycle(cycle.id),
+                                `"${cycle.label}" is now the active cycle.`,
+                              )
+                            }
+                          >
+                            Make active
+                          </button>
+                        )}
+                        {status === 'open' && (
+                          <button
+                            type="button"
+                            className="secondary danger"
+                            onClick={() => handleClose(cycle)}
+                          >
+                            Close now
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   )
@@ -293,4 +314,26 @@ function formatDate(iso) {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+}
+
+/** Client-side sort: cycles are few, so ordering here avoids extra round trips. */
+function sortCycles(cycles, sort) {
+  const rows = [...cycles]
+  const opens = (c) => new Date(c.opens_at).getTime()
+  const byLabel = (a, b) =>
+    a.label.localeCompare(b.label, undefined, { sensitivity: 'base', numeric: true })
+  const statusRank = { open: 0, scheduled: 1, inactive: 2, closed: 3 }
+
+  rows.sort((a, b) => {
+    if (sort === 'oldest') return opens(a) - opens(b)
+    if (sort === 'label_asc') return byLabel(a, b)
+    if (sort === 'label_desc') return byLabel(b, a)
+    if (sort === 'status') {
+      const diff = statusRank[cycleState(a)] - statusRank[cycleState(b)]
+      return diff !== 0 ? diff : opens(b) - opens(a)
+    }
+    return opens(b) - opens(a) // recent
+  })
+
+  return rows
 }

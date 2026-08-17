@@ -67,7 +67,7 @@ Each type sees a **different set of questions** (defined in §8). Users are dire
 - Interactive, validated multi-section feedback forms for all 5 types.
 - Rating questions (Likert scales) + text/recommendation questions + profile fields.
 - Admin CRUD for questions, with versioning so edits never corrupt past analytics.
-- Admin CRUD for users, including CSV bulk import and throttled invite emails.
+- Admin CRUD for users, including direct account creation, CSV bulk import, and soft removal.
 - Feedback organized per **academic year** (feedback cycles) with an editable window that closes on a set date.
 - Analytics dashboard: counts, averages, charts, filtering.
 - Report/data export.
@@ -123,7 +123,7 @@ See §1.3.
 - **FR-21** Admin can remove/deactivate a user.
 - **FR-22** Admin can view a list of all users with filters (by type, status) and search by name/email.
 - **FR-23** **Bulk import users via CSV** (required, not optional — see scale in §4). Import shows a preview, validates rows, reports per-row errors, and skips duplicates.
-- **FR-24** Invitation emails are sent in **throttled batches** so onboarding stays inside provider rate limits; admin can see invite status (pending / sent / accepted) and re-send individually.
+- **FR-24** New accounts receive a unique temporary password and must replace it on first sign-in. Invite status is not stored.
 
 ### 5.4 Admin Panel — Question Management
 - **FR-25** Admin can add a question to a stakeholder form.
@@ -341,7 +341,7 @@ B.A. · B.A.MMC · B.Com · B.Com Honours · BAF · BFM · BBI · BMS · B.Sc. �
 ## 9. Data Model (high-level)
 
 Tables (Supabase/Postgres):
-- **users** — id, email, name, role (admin | academic_peer | student | employer | alumni | faculty), status, invite_status, created_at.
+- **users** — id, email, name, role (admin | academic_peer | student | employer | alumni | faculty), status, must_change_password, removed_at, created_at.
 - **academic_cycles** — id, label (e.g. "2025–26"), is_active, opens_at, **closes_at**.
 - **forms** — id, stakeholder_type, title (one form per stakeholder type).
 - **questions** — id, form_id, **question_key** (stable across versions), is_required, display_order, is_active, deleted_at, current_version_id.
@@ -408,7 +408,7 @@ Tables (Supabase/Postgres):
 - **A user cannot create a duplicate submission for the same course in a cycle, can edit their submission before the cycle closes, and is blocked from editing after it closes** (verified at the database level, not only in the UI).
 - **Editing a question does not alter any previously submitted answer**; a deleted question's historical data still appears in analytics and exports.
 - Admin dashboard shows accurate counts, averages, distributions, and filters by type/program/course/year, and flags questions whose averages span multiple versions.
-- **A batch of ~100+ users can be imported via CSV and invited without hitting an email rate limit.**
+- **A batch of ~100+ users can be imported via CSV as direct accounts without sending invitation emails.**
 - Text responses receive basic sentiment tags and the dashboard surfaces at least a few auto-insights.
 - Data exportable to CSV.
 - Deployed on Cloudflare Workers + Supabase within free-tier limits, at ₹0.

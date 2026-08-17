@@ -41,8 +41,9 @@ In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CL
 | `0001_schema.sql` | Tables, question versioning, the one-per-course index, immutability triggers |
 | `0002_rls.sql` | RLS policies, the edit-window gate, privilege guards |
 | `0003_seed.sql` | All 5 forms, their 4 rating scales, every question from PRD §8, first cycle |
-| `0004_auth_sync.sql` | Mirrors `auth.users` into `profiles` on invite |
+| `0004_auth_sync.sql` | Mirrors `auth.users` into `profiles` on account creation |
 | `0005_analytics.sql` | Admin-only aggregate functions behind the dashboard |
+| `0006_direct_users.sql` | Direct accounts, temporary-password gate, soft user removal |
 
 ### 4. Create the first admin
 
@@ -50,8 +51,8 @@ Only admins can register users, so the first one is made by hand. Create the
 user in **Authentication → Add user**, then run in the SQL editor:
 
 ```sql
-insert into public.profiles (id, email, full_name, role, status, invite_status)
-select id, email, 'Your Name', 'admin', 'active', 'accepted'
+insert into public.profiles (id, email, full_name, role, status)
+select id, email, 'Your Name', 'admin', 'active'
 from auth.users
 where email = 'you@college.edu'
 on conflict (id) do update set role = 'admin', status = 'active';
@@ -63,7 +64,7 @@ on conflict (id) do update set role = 'admin', status = 'active';
 npm run dev
 ```
 
-### 6. Deploy the invite function
+### 6. Deploy the user provisioning function
 
 Creating an auth account requires the Supabase **service_role** key, which
 bypasses every RLS policy and must never reach the browser. It lives only inside
@@ -77,15 +78,9 @@ supabase link --project-ref <your-project-ref>
 supabase functions deploy invite-users
 ```
 
-Then set the site URL so invitation emails link back to the right place:
-
-```bash
-supabase secrets set PUBLIC_SITE_URL=https://your-worker.workers.dev
-```
-
-Invites work from `npm run dev` too — the function runs on Supabase, not
-locally, so there is no need for a local server runtime. Until it is deployed the
-invite button reports that clearly rather than failing opaquely.
+User creation works from `npm run dev` too because the function runs on
+Supabase, not locally. It creates confirmed accounts directly and returns a
+temporary password to the admin; it does not send an invitation email.
 
 > `.env` needs only the two `VITE_` values. The `service_role` key must never go
 > in `.env` or any `VITE_` variable — Vite inlines those into the bundle it ships
@@ -134,8 +129,8 @@ impossible; the app upserts on it so a repeat visit edits the existing row.
 (PRD A5). Writes are permitted only while `now() < cycle.closes_at`, checked in
 the RLS policy itself.
 
-**Scale to 100–500 users (FR-23, FR-24).** Onboarding needs custom SMTP; see
-below.
+**Scale to 100–500 users (FR-23).** CSV imports create accounts in bounded
+batches and produce a temporary-password file for the administrator.
 
 ### Rating scales are not interchangeable
 
@@ -186,9 +181,10 @@ cell is still an executable formula when an admin opens the file in Excel.
 
 ## Before onboarding real users
 
-Supabase's built-in email sender allows only a few messages per hour, which will
-not cover 100–500 invites. Connect a free SMTP provider (Brevo, Resend) under
-**Project Settings → Auth → SMTP** before importing users.
+Temporary passwords are shown once after account creation. Share them through a
+private channel and remove the downloaded credentials file after distribution.
+Users must replace the temporary password before the database grants their app
+role.
 
 ---
 
@@ -217,7 +213,7 @@ wrangler.jsonc             Cloudflare Workers deploy + SPA fallback
 scripts/                   unit tests, run by `npm run check`
 supabase/
   migrations/              schema, RLS, seed, auth sync, analytics
-  functions/invite-users/  admin-only provisioning (service_role stays here)
+  functions/invite-users/  admin-only direct provisioning (service_role stays here)
 src/
   lib/             supabase client, validation, form schema, submissions
   lib/admin/       users, questions, cycles, question diffing
@@ -232,12 +228,13 @@ src/
 ## Status
 
 Weeks 1–4 complete: auth and role-based routing, all five forms rendering from
-the database with validation, submission and editing, the admin panel (users,
-question CRUD with versioning, cycles), and the analytics dashboard — response
+the database with validation, submission and editing, the admin panel (direct
+user creation and soft removal, question CRUD with versioning, cycles), and the
+analytics dashboard — response
 counts, per-question averages and distributions, year-over-year trends,
 rule-based sentiment with auto-insights, and CSV export (FR-34 to FR-42).
 
-Run `npm run check` for the unit tests: 184 assertions over redirect safety,
+Run `npm run check` for the full check suite covering redirect safety,
 validation, admin logic, answer remapping across question versions, and the
 analytics scale/sentiment/insight/CSV rules.
 

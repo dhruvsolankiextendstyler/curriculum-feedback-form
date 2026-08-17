@@ -23,6 +23,7 @@ const {
 
 const { validateCsvRows, mapHeaders, normaliseRole, isEmail, chunk } =
   await load('src/lib/admin/csv.js')
+const { sortUserRows } = await load('src/lib/admin/userSort.js')
 
 let passed = 0
 const check = (label, fn) => {
@@ -336,6 +337,29 @@ check('a short row is reported, not crashed on', () => {
   const result = validateCsvRows([header, ['a@x.com']])
   assert.equal(result.valid.length + result.invalid.length, 1)
 })
+
+check('accepts an optional temporary password', () => {
+  const result = validateCsvRows(
+    [['email', 'full_name', 'role', 'temporary_password'], ['a@x.com', 'Asha', 'student', 'ChangeMe123!']],
+  )
+  assert.equal(result.valid[0].temporary_password, 'ChangeMe123!')
+})
+
+console.log('\nsortUserRows')
+const sortFixture = [
+  { email: 'z@example.com', full_name: 'Zubin', created_at: '2026-01-01T00:00:00Z' },
+  { email: 'a@example.com', full_name: 'asha', created_at: '2026-02-01T00:00:00Z' },
+]
+check('sorts names case-insensitively', () =>
+  assert.deepEqual(sortUserRows(sortFixture, 'name_asc').map((row) => row.email), [
+    'a@example.com',
+    'z@example.com',
+  ]))
+check('sorts recent accounts first', () =>
+  assert.deepEqual(sortUserRows(sortFixture, 'recent').map((row) => row.email), [
+    'a@example.com',
+    'z@example.com',
+  ]))
 
 console.log('\nchunk')
 check('splits into batches of 25 by default', () => {

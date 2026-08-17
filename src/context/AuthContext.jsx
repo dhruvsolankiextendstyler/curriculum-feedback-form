@@ -1,18 +1,9 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext(null)
 
-/**
- * Session + profile for the signed-in user.
- *
- * `session` comes from Supabase Auth; `profile` is our public.profiles row and
- * carries the role that drives every routing and RLS decision.
- *
- * The profile fetch deliberately lives in its own effect rather than inside the
- * onAuthStateChange callback: calling another supabase-js method from inside
- * that callback can deadlock on the client's internal auth lock.
- */
+/** Session and profile data used by routing and role-aware UI. */
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [sessionLoading, setSessionLoading] = useState(true)
@@ -44,36 +35,49 @@ export function AuthProvider({ children }) {
 
   const userId = session?.user?.id ?? null
 
-  useEffect(() => {
+  const refreshProfile = useCallback(async () => {
     if (!userId) {
       setProfile(null)
       setProfileError(null)
-      return
+      setProfileLoading(false)
+      return null
     }
 
-    let active = true
     setProfileLoading(true)
     setProfileError(null)
-
-    supabase
+    let { data, error } = await supabase
       .from('profiles')
-      .select('id, email, full_name, role, status')
+      .select('id, email, full_name, role, status, must_change_password, removed_at')
       .eq('id', userId)
       .maybeSingle()
-      .then(({ data, error }) => {
-        if (!active) return
-        if (error) setProfileError(error.message)
-        // maybeSingle() returns null rather than throwing when the row is
-        // missing — an account created in Auth but never given a profile.
-        // ProtectedRoute surfaces that as "contact your administrator".
-        setProfile(data ?? null)
-        setProfileLoading(false)
-      })
 
-    return () => {
-      active = false
+    // Keep existing sessions usable while a deployment is rolling out the
+    // direct-user migration. The legacy schema has no password/removal flags;
+    // treating those fields as their safe defaults lets the user reach the app
+    // (and avoids trapping them on the profile-error screen).
+    if (error && isMissingDirectUserColumn(error.message)) {
+      const legacy = await supabase
+        .from('profiles')
+        .select('id, email, full_name, role, status')
+        .eq('id', userId)
+        .maybeSingle()
+
+      data = legacy.data
+      error = legacy.error
+      if (!error && data) {
+        data = { ...data, must_change_password: false, removed_at: null }
+      }
     }
+
+    if (error) setProfileError(error.message)
+    setProfile(data ?? null)
+    setProfileLoading(false)
+    return data ?? null
   }, [userId])
+
+  useEffect(() => {
+    refreshProfile()
+  }, [refreshProfile])
 
   const value = useMemo(
     () => ({
@@ -83,6 +87,7 @@ export function AuthProvider({ children }) {
       role: profile?.role ?? null,
       loading: sessionLoading || profileLoading,
       profileError,
+      refreshProfile,
       signIn: (email, password) =>
         supabase.auth.signInWithPassword({ email, password }),
       signOut: () => supabase.auth.signOut(),
@@ -91,10 +96,17 @@ export function AuthProvider({ children }) {
           redirectTo: `${window.location.origin}/set-password`,
         }),
     }),
-    [session, profile, sessionLoading, profileLoading, profileError]
+    [session, profile, sessionLoading, profileLoading, profileError, refreshProfile],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function isMissingDirectUserColumn(message = '') {
+  return (
+    /column .*must_change_password.* does not exist/i.test(message) ||
+    /column .*removed_at.* does not exist/i.test(message)
+  )
 }
 
 export function useAuth() {

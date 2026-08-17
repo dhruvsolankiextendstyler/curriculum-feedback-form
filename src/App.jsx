@@ -24,9 +24,16 @@ const AdminAnalytics = lazy(() => import('./pages/AdminAnalytics'))
 
 /** Sends a signed-in user to their panel; anyone else to the login screen. */
 function RootRedirect() {
-  const { session, role, loading } = useAuth()
+  const { session, profile, role, loading } = useAuth()
   if (loading) return <p className="muted centered">Loading…</p>
   if (!session) return <Navigate to="/login" replace />
+  if (
+    profile?.must_change_password &&
+    profile.status === 'active' &&
+    !profile.removed_at
+  ) {
+    return <Navigate to="/set-password" replace />
+  }
   return <Navigate to={homePathFor(role)} replace />
 }
 

@@ -10,7 +10,7 @@ import { homePathFor, isAdmin } from '../lib/constants'
  * or write anything their role does not allow.
  */
 export default function ProtectedRoute({ children, requireAdmin = false }) {
-  const { session, profile, role, loading, profileError } = useAuth()
+  const { session, profile, role, loading, profileError, signOut } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -26,11 +26,14 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
       <div className="notice error" role="alert">
         <h2>Could not load your account</h2>
         <p>{profileError}</p>
+        <button type="button" className="secondary" onClick={signOut}>
+          Sign out and return to login
+        </button>
       </div>
     )
   }
 
-  // Signed in to Auth but no profiles row: an invite that was never completed.
+  // Signed in to Auth but no profiles row: account provisioning did not finish.
   if (!profile) {
     return (
       <div className="notice error" role="alert">
@@ -39,6 +42,21 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
           Your login exists but has no role assigned yet. Please contact your
           administrator.
         </p>
+        <button type="button" className="secondary" onClick={signOut}>
+          Sign out and return to login
+        </button>
+      </div>
+    )
+  }
+
+  if (profile.removed_at) {
+    return (
+      <div className="notice error" role="alert">
+        <h2>Account removed</h2>
+        <p>This account has been removed. Please contact your administrator.</p>
+        <button type="button" className="secondary" onClick={signOut}>
+          Sign out and return to login
+        </button>
       </div>
     )
   }
@@ -48,8 +66,15 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
       <div className="notice error" role="alert">
         <h2>Account deactivated</h2>
         <p>This account is no longer active. Please contact your administrator.</p>
+        <button type="button" className="secondary" onClick={signOut}>
+          Sign out and return to login
+        </button>
       </div>
     )
+  }
+
+  if (profile.must_change_password) {
+    return <Navigate to="/set-password" replace />
   }
 
   if (requireAdmin && !isAdmin(role)) {

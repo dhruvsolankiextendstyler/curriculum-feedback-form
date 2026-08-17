@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
 /**
- * FR-3 / FR-4: landing page for invite and password-reset links.
+ * FR-3 / FR-4: first-sign-in password change and password-reset landing page.
  *
  * Supabase's `detectSessionInUrl` consumes the token in the URL and creates a
  * session before this renders, so updateUser() is authenticated by the time the
  * user submits.
  */
 export default function SetPassword() {
+  const { session, profile, refreshProfile } = useAuth()
   const navigate = useNavigate()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -37,12 +39,19 @@ export default function SetPassword() {
       setError(updateError.message)
       return
     }
+    await refreshProfile()
     navigate('/', { replace: true })
   }
 
   return (
     <main className="shell narrow">
       <h1>Set your password</h1>
+      {!session && (
+        <p className="muted">Use this page from the password-reset link sent to your email.</p>
+      )}
+      {profile?.must_change_password && (
+        <p className="muted">Your administrator created this account with a temporary password. Choose a private password to continue.</p>
+      )}
       <form onSubmit={handleSubmit} className="card">
         <label htmlFor="new-password">New password</label>
         <input
