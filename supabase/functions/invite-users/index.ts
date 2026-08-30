@@ -18,10 +18,15 @@
  * never-used invitation created by the previous function can be converted to
  * the same direct-account state when an admin retries that address.
  *
+ * Each entry may carry an optional `sap_id`, the second identifier its owner can
+ * sign in with (FR-1). It is written by the same auth-sync trigger that writes
+ * the role, so a duplicate fails the whole account rather than half-creating one.
+ *
  * Deploy:  supabase functions deploy invite-users
- * Logs:    supabase functions logs invite-users
+ * Logs:    Supabase dashboard -> Edge Functions -> invite-users -> Logs
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2'
+import { isEmail, isMissingSapIdColumn, validateSapId } from '../_shared/sapId.ts'
 
 const VALID_ROLES = new Set([
   'admin',
@@ -187,6 +192,23 @@ async function createOne(admin: any, entry: any) {
     }
   }
 
+  // Optional (FR-19): most accounts have a SAP ID, some never will.
+  const sapCheck = validateSapId(entry?.sap_id)
+  if (!sapCheck.ok) return { email, status: 'failed', reason: sapCheck.reason }
+  const sapId = sapCheck.value
+
+  if (sapId) {
+    const clash = await findSapIdOwner(admin, sapId)
+    if (clash.error) return { email, status: 'failed', reason: clash.error }
+    if (clash.owner) {
+      return {
+        email,
+        status: 'failed',
+        reason: `SAP ID ${sapId} already belongs to ${clash.owner}.`,
+      }
+    }
+  }
+
   const temporaryPassword = suppliedPassword || generateTemporaryPassword()
 
   // The auth sync trigger reads this metadata to create the profile row.
@@ -196,7 +218,7 @@ async function createOne(admin: any, entry: any) {
     email,
     password: temporaryPassword,
     email_confirm: true,
-    user_metadata: { role, full_name: fullName },
+    user_metadata: { role, full_name: fullName, ...(sapId ? { sap_id: sapId } : {}) },
   })
 
   if (error) {
@@ -206,6 +228,7 @@ async function createOne(admin: any, entry: any) {
         email,
         fullName,
         role,
+        sapId,
         temporaryPassword,
       })
       if (recovered) return recovered
@@ -222,8 +245,32 @@ async function createOne(admin: any, entry: any) {
     email,
     status: 'created',
     userId: data?.user?.id ?? null,
+    sap_id: sapId,
     temporary_password: temporaryPassword,
   }
+}
+
+/**
+ * The unique index on profiles.sap_id would reject a clash anyway, but it would
+ * do so from inside the auth.users insert — surfacing to the admin as a generic
+ * "database error creating new user". Checking first buys a sentence that names
+ * the number and who already holds it.
+ */
+async function findSapIdOwner(admin: any, sapId: string) {
+  const { data, error } = await admin
+    .from('profiles')
+    .select('email')
+    .eq('sap_id', sapId)
+    .maybeSingle()
+
+  if (error) {
+    return {
+      error: isMissingSapIdColumn(error.message)
+        ? 'SAP IDs need migration 0007_sap_id.sql applied to this project first.'
+        : error.message,
+    }
+  }
+  return { owner: data?.email ?? null }
 }
 
 /**
@@ -237,6 +284,7 @@ async function recoverLegacyInvite(
     email: string
     fullName: string
     role: string
+    sapId: string | null
     temporaryPassword: string
   },
 ) {
@@ -267,6 +315,7 @@ async function recoverLegacyInvite(
       ...(existingUser.user_metadata ?? {}),
       role: account.role,
       full_name: account.fullName,
+      ...(account.sapId ? { sap_id: account.sapId } : {}),
     },
   })
   if (updateAuthError) {
@@ -280,10 +329,16 @@ async function recoverLegacyInvite(
   // Setting the password fires the Auth password-change trigger, which clears
   // this flag. Set it afterwards so the recovered user still has to replace
   // the admin-issued temporary password on first sign-in.
+  //
+  // sap_id is only named when there is one to write, so a project still on the
+  // pre-0007 schema is not sent a column it does not have. An admin who DID ask
+  // for a SAP ID never reaches this point: createOne's clash check fails the row
+  // first, with the migration to apply.
   let { error: updateProfileError } = await admin
     .from('profiles')
     .update({
       full_name: account.fullName || null,
+      ...(account.sapId ? { sap_id: account.sapId } : {}),
       role: account.role,
       status: 'active',
       must_change_password: true,
@@ -317,17 +372,15 @@ async function recoverLegacyInvite(
     email: account.email,
     status: 'created',
     userId: profile.id,
+    sap_id: account.sapId,
     temporary_password: account.temporaryPassword,
     recovered: true,
   }
 }
 
-const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)
-
-function isMissingDirectUserColumn(message = '') {
-  return /(must_change_password|removed_at|removed_by)/i.test(message) &&
-    /(does not exist|could not find|schema cache)/i.test(message)
-}
+const isMissingDirectUserColumn = (message = '') =>
+  /(must_change_password|removed_at|removed_by)/i.test(message) &&
+  /(does not exist|could not find|schema cache)/i.test(message)
 
 function generateTemporaryPassword() {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'

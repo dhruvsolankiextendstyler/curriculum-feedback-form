@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import Papa from 'papaparse'
 import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../../lib/constants'
+import { SAP_ID_HINT, validateSapId } from '../../lib/identifier'
 import { CSV_TEMPLATE, validateCsvRows } from '../../lib/admin/csv'
-import { loadAllEmails } from '../../lib/admin/users'
+import { loadExistingIdentifiers } from '../../lib/admin/users'
 
 const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
@@ -42,35 +43,42 @@ export default function UserImport({ create, onDone, onError }) {
   )
 }
 
+const EMPTY_USER = {
+  email: '',
+  full_name: '',
+  sap_id: '',
+  role: ROLES.STUDENT,
+  temporary_password: '',
+}
+
 function SingleUser({ create, onDone, onError }) {
-  const [form, setForm] = useState({
-    email: '',
-    full_name: '',
-    role: ROLES.STUDENT,
-    temporary_password: '',
-  })
+  const [form, setForm] = useState(EMPTY_USER)
   const [credential, setCredential] = useState(null)
   const [busy, setBusy] = useState(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
+
+    // Checked here as well as in the database, so a typo costs no round trip.
+    const sapCheck = validateSapId(form.sap_id)
+    if (!sapCheck.ok) {
+      onError(sapCheck.reason)
+      return
+    }
+
     setBusy(true)
     setCredential(null)
     try {
-      const result = await create([form])
+      const result = await create([{ ...form, sap_id: sapCheck.value ?? '' }])
       const outcome = result.results?.[0]
       if (outcome?.status === 'created') {
         setCredential({
           email: outcome.email,
+          sap_id: outcome.sap_id ?? null,
           temporary_password: outcome.temporary_password,
         })
         onDone(`${form.email} was added.`)
-        setForm({
-          email: '',
-          full_name: '',
-          role: ROLES.STUDENT,
-          temporary_password: '',
-        })
+        setForm(EMPTY_USER)
       } else {
         onError(`${form.email}: ${outcome?.reason ?? 'user creation failed'}`)
       }
@@ -103,6 +111,23 @@ function SingleUser({ create, onDone, onError }) {
           setForm((current) => ({ ...current, full_name: event.target.value }))
         }
       />
+
+      <label htmlFor="create-sap-id">SAP ID (optional)</label>
+      <input
+        id="create-sap-id"
+        type="text"
+        autoCapitalize="characters"
+        spellCheck="false"
+        aria-describedby="create-sap-id-hint"
+        value={form.sap_id}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, sap_id: event.target.value }))
+        }
+      />
+      <p className="field-hint" id="create-sap-id-hint">
+        A second identifier this person can sign in with. Leave blank if they have
+        none — they will sign in by email. {SAP_ID_HINT}.
+      </p>
 
       <label htmlFor="create-role">Role</label>
       <select
@@ -142,6 +167,11 @@ function SingleUser({ create, onDone, onError }) {
           <p>
             <strong>{credential.email}</strong>
           </p>
+          {credential.sap_id && (
+            <p>
+              SAP ID: <code>{credential.sap_id}</code>
+            </p>
+          )}
           <p>
             Temporary password: <code>{credential.temporary_password}</code>
           </p>
@@ -170,7 +200,7 @@ function CsvUsers({ create, onDone, onError }) {
       skipEmptyLines: true,
       complete: async (parsed) => {
         try {
-          const existing = await loadAllEmails()
+          const existing = await loadExistingIdentifiers()
           const result = validateCsvRows(parsed.data, existing)
           if (result.headerError) {
             onError(result.headerError)
@@ -202,6 +232,7 @@ function CsvUsers({ create, onDone, onError }) {
         .filter((row) => row.status === 'created')
         .map((row) => ({
           email: row.email,
+          sap_id: row.sap_id ?? '',
           temporary_password: row.temporary_password,
         }))
       setCredentials(created)
@@ -239,7 +270,7 @@ function CsvUsers({ create, onDone, onError }) {
     <div>
       <p className="muted">
         Columns: <code>email</code>, <code>full_name</code>, <code>role</code>, and
-        optional <code>temporary_password</code>.
+        optional <code>sap_id</code> and <code>temporary_password</code>.
       </p>
 
       <div className="button-row">
@@ -297,6 +328,7 @@ function CsvUsers({ create, onDone, onError }) {
                   <li key={row.email}>
                     {row.email} - {ROLE_LABELS[row.role]}
                     {row.full_name ? ` (${row.full_name})` : ''}
+                    {row.sap_id ? ` - SAP ID ${row.sap_id}` : ''}
                   </li>
                 ))}
               </ul>

@@ -8,7 +8,8 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
 
-  const [email, setEmail] = useState('')
+  // FR-1: one field, either identifier. AuthContext decides which it is.
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(null)
   const [notice, setNotice] = useState(null)
@@ -26,7 +27,7 @@ export default function Login() {
     setError(null)
     setNotice(null)
 
-    const { error: signInError } = await signIn(email.trim(), password)
+    const { error: signInError } = await signIn(identifier, password)
     setBusy(false)
 
     if (signInError) {
@@ -36,19 +37,20 @@ export default function Login() {
     navigate('/', { replace: true })
   }
 
-  // FR-4. Supabase returns success regardless of whether the address exists,
-  // so the confirmation is deliberately worded not to confirm the account.
+  // FR-4. The confirmation is deliberately worded not to confirm the account:
+  // the request succeeds whether or not the identifier matches one. A SAP ID
+  // does not tell the browser which address the link will go to, hence "its".
   async function handleReset() {
-    if (!email.trim()) {
-      setError('Enter your email address first, then choose "Forgot password".')
+    if (!identifier.trim()) {
+      setError('Enter your email address or SAP ID first, then choose "Forgot password".')
       return
     }
     setBusy(true)
     setError(null)
-    const { error: resetError } = await resetPassword(email.trim())
+    const { error: resetError } = await resetPassword(identifier)
     setBusy(false)
     if (resetError) setError(resetError.message)
-    else setNotice('If that address has an account, a reset link is on its way.')
+    else setNotice('If that account exists, a reset link is on its way to its email address.')
   }
 
   return (
@@ -59,15 +61,21 @@ export default function Login() {
       </p>
 
       <form onSubmit={handleSubmit} className="card">
-        <label htmlFor="email">Email</label>
+        <label htmlFor="identifier">Email or SAP ID</label>
         <input
-          id="email"
-          type="email"
+          id="identifier"
+          type="text"
           autoComplete="username"
+          autoCapitalize="off"
+          spellCheck="false"
+          aria-describedby="identifier-hint"
           required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
         />
+        <p className="field-hint" id="identifier-hint">
+          Your college email address, or your SAP ID if you have been given one.
+        </p>
 
         <label htmlFor="password">Password</label>
         <input

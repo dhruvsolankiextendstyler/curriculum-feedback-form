@@ -21,7 +21,7 @@ const {
   validateQuestionDraft,
 } = await load('src/lib/admin/questionDiff.js')
 
-const { validateCsvRows, mapHeaders, normaliseRole, isEmail, chunk } =
+const { validateCsvRows, mapHeaders, normaliseRole, isEmail, chunk, CSV_TEMPLATE } =
   await load('src/lib/admin/csv.js')
 const { sortUserRows } = await load('src/lib/admin/userSort.js')
 
@@ -343,6 +343,82 @@ check('accepts an optional temporary password', () => {
     [['email', 'full_name', 'role', 'temporary_password'], ['a@x.com', 'Asha', 'student', 'ChangeMe123!']],
   )
   assert.equal(result.valid[0].temporary_password, 'ChangeMe123!')
+})
+
+console.log('\nvalidateCsvRows — the optional sap_id column (FR-1)')
+const sapHeader = ['email', 'full_name', 'sap_id', 'role']
+
+check('a file with no sap_id column still imports', () => {
+  const result = validateCsvRows([header, ['a@x.com', 'Asha', 'student']])
+  assert.equal(result.valid.length, 1)
+  assert.equal(result.valid[0].sap_id, '')
+})
+check('a blank sap_id cell is allowed', () => {
+  const result = validateCsvRows([sapHeader, ['a@x.com', 'Asha', '', 'student']])
+  assert.equal(result.valid.length, 1)
+  assert.equal(result.valid[0].sap_id, '')
+})
+check('a sap_id is normalised to its stored form', () => {
+  const result = validateCsvRows([sapHeader, ['a@x.com', 'Asha', ' cse-14 ', 'student']])
+  assert.equal(result.valid[0].sap_id, 'CSE-14')
+})
+check('"SAP Number" is accepted as a header alias', () => {
+  const map = mapHeaders(['email', 'SAP Number', 'role'])
+  assert.equal(map.sap_id, 1)
+})
+check('a malformed sap_id is reported with its line number', () => {
+  const result = validateCsvRows([sapHeader, ['a@x.com', 'Asha', 'a b', 'student']])
+  assert.equal(result.valid.length, 0)
+  assert.equal(result.invalid[0].line, 2)
+  assert.match(result.invalid[0].reason, /SAP ID/i)
+})
+check('the same sap_id twice in one file is caught', () => {
+  const result = validateCsvRows([
+    sapHeader,
+    ['a@x.com', 'One', '70011', 'student'],
+    ['b@x.com', 'Two', '70011', 'student'],
+  ])
+  assert.equal(result.valid.length, 1)
+  assert.match(result.invalid[0].reason, /twice/i)
+})
+check('case cannot smuggle a duplicate sap_id past the check', () => {
+  const result = validateCsvRows([
+    sapHeader,
+    ['a@x.com', 'One', 'cse-14', 'student'],
+    ['b@x.com', 'Two', 'CSE-14', 'student'],
+  ])
+  assert.equal(result.valid.length, 1)
+  assert.equal(result.invalid.length, 1)
+})
+check('a sap_id already in the database is rejected', () => {
+  const result = validateCsvRows(
+    [sapHeader, ['a@x.com', 'Asha', 'cse-14', 'student']],
+    { emails: [], sapIds: ['CSE-14'] },
+  )
+  assert.equal(result.valid.length, 0)
+  assert.match(result.invalid[0].reason, /already assigned/i)
+})
+check('a bare array of existing identifiers is still read as emails', () => {
+  const result = validateCsvRows([sapHeader, ['a@x.com', 'Asha', '70011', 'student']], [
+    'a@x.com',
+  ])
+  assert.equal(result.valid.length, 0)
+  assert.match(result.invalid[0].reason, /already/i)
+})
+check('an email address in the sap_id column is refused', () => {
+  const result = validateCsvRows([sapHeader, ['a@x.com', 'Asha', 'a@x.com', 'student']])
+  assert.equal(result.valid.length, 0)
+  assert.match(result.invalid[0].reason, /@/)
+})
+check('the template parses back into a valid import', () => {
+  const rows = CSV_TEMPLATE.trim()
+    .split('\n')
+    .map((line) => line.split(','))
+  const result = validateCsvRows(rows)
+  assert.equal(result.headerError, null)
+  assert.equal(result.valid.length, 3)
+  assert.equal(result.valid[0].sap_id, '70011234567')
+  assert.equal(result.valid[1].sap_id, '')
 })
 
 console.log('\nsortUserRows')

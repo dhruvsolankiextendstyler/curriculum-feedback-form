@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>/ — graphify tree viewer</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f9f9f9;
+      color: #333;
+    }
+    h1 {
+      margin: 20px 0 0 24px;
+      font-size: 2.2rem;
+      font-weight: bold;
+      color: #1e3a56;
+    }
+    .controls {
+      margin: 20px 0 15px 24px;
+    }
+    button {
+      margin-right: 10px;
+      padding: 8px 18px;
+      background: #007bff;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s ease-in-out;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:active {
+      background: #004085;
+    }
+    #tree-container {
+      width: calc(100vw - 48px); /* Adjust for body margin/padding */
+      height: 85vh;
+      overflow: auto;
+      border-radius: 8px;
+      background: #fff;
+      margin-left: 24px;
+      margin-right: 24px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+      border: 1px solid #ddd;
+    }
+    svg {
+      background: #fff;
+      border-radius: 8px;
+      display: block; /* Important for D3 */
+    }
+    .node circle {
+      stroke-width: 2.5px;
+    }
+    .node text { /* Base style for the <text> container */
+      font: 13px 'Segoe UI', sans-serif;
+      paint-order: stroke fill; /* Ensures text is readable over lines */
+      stroke: #fff; /* White halo */
+      stroke-width: 3px; /* Halo thickness */
+      stroke-linejoin: round;
+      stroke-opacity: 0.85; /* Halo opacity */
+    }
+    .link {
+      fill: none;
+      stroke-opacity: 0.7;
+      stroke-width: 2px;
+    }
+  </style>
+</head>
+<body>
+  <h1>/ — Knowledge Graph</h1>
+  <div class="controls">
+    <button onclick="expandAll()">Expand All</button>
+    <button onclick="collapseAll()">Collapse All</button>
+    <button onclick="resetView()">Reset View</button>
+  </div>
+  <div id="tree-container">
+    <svg id="tree-svg" width="6000" height="8000"></svg>
+  </div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script>
+    const initialJsonData = {"name":"/","total_count":411,"children":[{"name":".mcp.json","total_count":1,"children":[{"name":"supabase","total_count":1,"children":[]}]},{"name":"index.html","total_count":1,"children":[{"name":"SPA HTML shell (#root mount, /src/main.jsx entry)","total_count":1,"children":[]}]},{"name":"package.json","total_count":34,"children":[{"name":"@supabase/supabase-js","total_count":1,"children":[]},{"name":"@supabase/supabase-js","total_count":1,"children":[]},{"name":"@vitejs/plugin-react","total_count":1,"children":[]},{"name":"@vitejs/plugin-react","total_count":1,"children":[]},{"name":"build","total_count":1,"children":[]},{"name":"check","total_count":1,"children":[]},{"name":"dependencies","total_count":1,"children":[]},{"name":"description","total_count":1,"children":[]},{"name":"dev","total_count":1,"children":[]},{"name":"devDependencies","total_count":1,"children":[]},{"name":"engines","total_count":1,"children":[]},{"name":"name","total_count":1,"children":[]},{"name":"node","total_count":1,"children":[]},{"name":"papaparse","total_count":1,"children":[]},{"name":"papaparse","total_count":1,"children":[]},{"name":"preview","total_count":1,"children":[]},{"name":"private","total_count":1,"children":[]},{"name":"react","total_count":1,"children":[]},{"name":"react","total_count":1,"children":[]},{"name":"react-dom","total_count":1,"children":[]},{"name":"react-dom","total_count":1,"children":[]},{"name":"react-router-dom","total_count":1,"children":[]},{"name":"react-router-dom","total_count":1,"children":[]},{"name":"recharts","total_count":1,"children":[]},{"name":"recharts","total_count":1,"children":[]},{"name":"scripts","total_count":1,"children":[]},{"name":"sentiment","total_count":1,"children":[]},{"name":"sentiment","total_count":1,"children":[]},{"name":"type","total_count":1,"children":[]},{"name":"version","total_count":1,"children":[]},{"name":"vite","total_count":1,"children":[]},{"name":"vite","total_count":1,"children":[]},{"name":"wrangler","total_count":1,"children":[]},{"name":"wrangler","total_count":1,"children":[]}]},{"name":"prd.md","total_count":46,"children":[{"name":"Academic Peers Feedback Form","total_count":1,"children":[]},{"name":"Academic-Year Feedback Cycles","total_count":1,"children":[]},{"name":"academic_cycles table (opens_at, closes_at)","total_count":1,"children":[]},{"name":"Admin Panel (users, questions, analytics)","total_count":1,"children":[]},{"name":"Alumni Feedback Form","total_count":1,"children":[]},{"name":"Analytics & Reports Dashboard (FR-35 to FR-42)","total_count":1,"children":[]},{"name":"answers table (question_version_id, value_numeric/text/options)","total_count":1,"children":[]},{"name":"Auto-Generated Rule-Based Insights (FR-41)","total_count":1,"children":[]},{"name":"Cloudflare Workers Static Assets Hosting","total_count":1,"children":[]},{"name":"CSV Bulk User Import (FR-23)","total_count":1,"children":[]},{"name":"CSV Export of Raw Responses (FR-42)","total_count":1,"children":[]},{"name":"Curriculum Feedback & Analysis Platform (PRD)","total_count":1,"children":[]},{"name":"Custom Free SMTP Provider for Supabase Auth","total_count":1,"children":[]},{"name":"Data Model (Supabase/Postgres tables)","total_count":1,"children":[]},{"name":"Editable-Until-Cycle-Close Window (FR-16)","total_count":1,"children":[]},{"name":"Employers & Industry Experts Feedback Form","total_count":1,"children":[]},{"name":"Faculty Feedback Form (4-point scale)","total_count":1,"children":[]},{"name":"forms table (one per stakeholder type)","total_count":1,"children":[]},{"name":"High-Level Architecture (SPA to Supabase)","total_count":1,"children":[]},{"name":"invite-users Edge Function (service_role stays server-side)","total_count":1,"children":[]},{"name":"One Submission per User per Course per Cycle (FR-15)","total_count":1,"children":[]},{"name":"PDF Summary Report per Academic Year (FR-43)","total_count":1,"children":[]},{"name":"Per-Form Likert Rating Scales","total_count":1,"children":[]},{"name":"Privacy: Exports Limited to Admins (NFR-4)","total_count":1,"children":[]},{"name":"Question Soft Delete (FR-32)","total_count":1,"children":[]},{"name":"Question Versioning on Edit (FR-31)","total_count":1,"children":[]},{"name":"question_options table (per question_version_id)","total_count":1,"children":[]},{"name":"question_versions table (immutable once answered)","total_count":1,"children":[]},{"name":"questions table (question_key, current_version_id)","total_count":1,"children":[]},{"name":"rating_scales table","total_count":1,"children":[]},{"name":"React SPA Frontend","total_count":1,"children":[]},{"name":"responses table (user, form, cycle, course_title)","total_count":1,"children":[]},{"name":"Role-Based Access Control (FR-5)","total_count":1,"children":[]},{"name":"Role-Based Form Routing (FR-7)","total_count":1,"children":[]},{"name":"Row-Level Security Enforcement (NFR-3)","total_count":1,"children":[]},{"name":"Rule-Based Lexicon Sentiment Analysis (FR-40)","total_count":1,"children":[]},{"name":"Stable question_key Across Versions","total_count":1,"children":[]},{"name":"Static Program Lists vs Admin-Managed Course Catalog (A5 / Open Question 1)","total_count":1,"children":[]},{"name":"Students Feedback Form","total_count":1,"children":[]},{"name":"Supabase Backend (Postgres, Auth, RLS, Edge Functions)","total_count":1,"children":[]},{"name":"Temporary Password on Account Creation (FR-24)","total_count":1,"children":[]},{"name":"User Panel (Respondents)","total_count":1,"children":[]},{"name":"users table (role, status, must_change_password)","total_count":1,"children":[]},{"name":"Version-Aware Analytics and Trend Grouping (FR-34/FR-39)","total_count":1,"children":[]},{"name":"Year-over-Year Comparison (FR-39)","total_count":1,"children":[]},{"name":"Zero-Budget Free-Tier Constraint","total_count":1,"children":[]}]},{"name":"README.md","total_count":29,"children":[{"name":"0001_schema.sql migration","total_count":1,"children":[]},{"name":"0002_rls.sql migration (RLS policies, edit-window gate, privilege guards)","total_count":1,"children":[]},{"name":"0003_seed.sql migration (5 forms, 4 scales, all questions, first cycle)","total_count":1,"children":[]},{"name":"0004_auth_sync.sql migration (auth.users to profiles)","total_count":1,"children":[]},{"name":"0005_analytics.sql migration (admin-only aggregate functions)","total_count":1,"children":[]},{"name":"0006_direct_users.sql migration (direct accounts, temp-password gate, soft removal)","total_count":1,"children":[]},{"name":"analytics_admin_ok() guard in plpgsql functions","total_count":1,"children":[]},{"name":"Cloudflare Workers deployment (wrangler.jsonc, no main entry)","total_count":1,"children":[]},{"name":"course_key generated column (lowercase, collapsed whitespace)","total_count":1,"children":[]},{"name":"CSV export excludes identity answers by question_key","total_count":1,"children":[]},{"name":"CSV import in bounded batches with a temporary-password file","total_count":1,"children":[]},{"name":"Curriculum Feedback Platform README","total_count":1,"children":[]},{"name":"Edit window checked inside the RLS policy","total_count":1,"children":[]},{"name":"Manual first-admin bootstrap SQL","total_count":1,"children":[]},{"name":"npm run check test suite","total_count":1,"children":[]},{"name":"papaparse escapeFormulae on free text","total_count":1,"children":[]},{"name":"public.profiles table (id, email, full_name, role, status)","total_count":1,"children":[]},{"name":"react-router 7 RSC CSRF advisory trade-off","total_count":1,"children":[]},{"name":"Revoke execute from PUBLIC, grant back to authenticated","total_count":1,"children":[]},{"name":"Rule-based sentiment and auto-insights layer (src/lib/analytics)","total_count":1,"children":[]},{"name":"Scale-aware normalisation (axisFor, bounds from rating_scale_options)","total_count":1,"children":[]},{"name":"service_role key never reaches the browser","total_count":1,"children":[]},{"name":"Soft delete (is_active = false) keeps analytics data","total_count":1,"children":[]},{"name":"SPA fallback: not_found_handling returns index.html","total_count":1,"children":[]},{"name":"supabase/functions/invite-users Edge Function","total_count":1,"children":[]},{"name":"Temporary password distribution guidance","total_count":1,"children":[]},{"name":"Three separate denominators: n_answers, n_scored, and their difference","total_count":1,"children":[]},{"name":"Trigger blocking edits to an answered question version","total_count":1,"children":[]},{"name":"Unique index on responses (user_id, cycle_id, course_key)","total_count":1,"children":[]}]},{"name":"scripts","total_count":47,"children":[{"name":"check-admin.mjs","total_count":7,"children":[{"name":"check()","total_count":1,"children":[]},{"name":"header","total_count":1,"children":[]},{"name":"load()","total_count":1,"children":[]},{"name":"ratingQ","total_count":1,"children":[]},{"name":"root","total_count":1,"children":[]},{"name":"selectQ","total_count":1,"children":[]},{"name":"sortFixture","total_count":1,"children":[]}]},{"name":"check-analytics.mjs","total_count":8,"children":[{"name":"check()","total_count":1,"children":[]},{"name":"exportRow","total_count":1,"children":[]},{"name":"facultyRow","total_count":1,"children":[]},{"name":"fakeAnalyzer","total_count":1,"children":[]},{"name":"load()","total_count":1,"children":[]},{"name":"root","total_count":1,"children":[]},{"name":"studentRow","total_count":1,"children":[]},{"name":"{ classify, summarise }","total_count":1,"children":[]}]},{"name":"check-answer-remap.mjs","total_count":6,"children":[{"name":"answerAtCurrentVersion","total_count":1,"children":[]},{"name":"answerAtOldVersion","total_count":1,"children":[]},{"name":"check()","total_count":1,"children":[]},{"name":"remapAnswersToCurrentVersions()","total_count":1,"children":[]},{"name":"rewordedQuestion","total_count":1,"children":[]},{"name":"stableQuestion","total_count":1,"children":[]}]},{"name":"check-safe-redirect.mjs","total_count":2,"children":[{"name":"BS","total_count":1,"children":[]},{"name":"cases","total_count":1,"children":[]}]},{"name":"check-submissions.mjs","total_count":10,"children":[{"name":"check()","total_count":1,"children":[]},{"name":"load()","total_count":1,"children":[]},{"name":"multiQuestion","total_count":1,"children":[]},{"name":"reworded","total_count":1,"children":[]},{"name":"root","total_count":1,"children":[]},{"name":"scale","total_count":1,"children":[]},{"name":"stable","total_count":1,"children":[]},{"name":"storedAtOldVersion","total_count":1,"children":[]},{"name":"storedForDeletedQuestion","total_count":1,"children":[]},{"name":"textQuestion","total_count":1,"children":[]}]},{"name":"check-supabase-url.mjs","total_count":3,"children":[{"name":"cases","total_count":1,"children":[]},{"name":"describeUrlProblem()","total_count":1,"children":[]},{"name":"hint","total_count":1,"children":[]}]},{"name":"check-validation.mjs","total_count":11,"children":[{"name":"check()","total_count":1,"children":[]},{"name":"load()","total_count":1,"children":[]},{"name":"longText","total_count":1,"children":[]},{"name":"multi","total_count":1,"children":[]},{"name":"optionalRating","total_count":1,"children":[]},{"name":"qMap","total_count":1,"children":[]},{"name":"rating","total_count":1,"children":[]},{"name":"root","total_count":1,"children":[]},{"name":"scale","total_count":1,"children":[]},{"name":"shortText","total_count":1,"children":[]},{"name":"single","total_count":1,"children":[]}]}]},{"name":"src","total_count":188,"children":[{"name":"App.jsx","total_count":3,"children":[{"name":"AdminAnalytics","total_count":1,"children":[]},{"name":"App()","total_count":1,"children":[]},{"name":"RootRedirect()","total_count":1,"children":[]}]},{"name":"components","total_count":32,"children":[{"name":"admin","total_count":21,"children":[{"name":"AnalyticsCharts.jsx","total_count":8,"children":[{"name":"AverageTooltip()","total_count":1,"children":[]},{"name":"ChoiceChart()","total_count":1,"children":[]},{"name":"DistributionChart()","total_count":1,"children":[]},{"name":"QuestionAverages()","total_count":1,"children":[]},{"name":"SERIES","total_count":1,"children":[]},{"name":"shorten()","total_count":1,"children":[]},{"name":"TrendChart()","total_count":1,"children":[]},{"name":"VersionDot()","total_count":1,"children":[]}]},{"name":"QuestionEditor.jsx","total_count":5,"children":[{"name":"emptyDraft","total_count":1,"children":[]},{"name":"OptionEditor()","total_count":1,"children":[]},{"name":"QuestionEditor()","total_count":1,"children":[]},{"name":"ScalePreview()","total_count":1,"children":[]},{"name":"TYPES","total_count":1,"children":[]}]},{"name":"QuestionHistory.jsx","total_count":3,"children":[{"name":"ACTION_LABELS","total_count":1,"children":[]},{"name":"formatDate()","total_count":1,"children":[]},{"name":"QuestionHistory()","total_count":1,"children":[]}]},{"name":"UserImport.jsx","total_count":5,"children":[{"name":"ALL_ROLES","total_count":1,"children":[]},{"name":"CsvUsers()","total_count":1,"children":[]},{"name":"downloadText()","total_count":1,"children":[]},{"name":"SingleUser()","total_count":1,"children":[]},{"name":"UserImport()","total_count":1,"children":[]}]}]},{"name":"AdminNav.jsx","total_count":2,"children":[{"name":"AdminNav()","total_count":1,"children":[]},{"name":"TABS","total_count":1,"children":[]}]},{"name":"ConfigError.jsx","total_count":1,"children":[{"name":"ConfigError()","total_count":1,"children":[]}]},{"name":"Layout.jsx","total_count":1,"children":[{"name":"Layout()","total_count":1,"children":[]}]},{"name":"ProtectedRoute.jsx","total_count":1,"children":[{"name":"ProtectedRoute()","total_count":1,"children":[]}]},{"name":"QuestionField.jsx","total_count":6,"children":[{"name":"CharCount()","total_count":1,"children":[]},{"name":"CheckboxGroup()","total_count":1,"children":[]},{"name":"Control()","total_count":1,"children":[]},{"name":"FieldLabel()","total_count":1,"children":[]},{"name":"QuestionField()","total_count":1,"children":[]},{"name":"RatingGroup()","total_count":1,"children":[]}]}]},{"name":"context","total_count":4,"children":[{"name":"AuthContext.jsx","total_count":4,"children":[{"name":"AuthContext","total_count":1,"children":[]},{"name":"AuthProvider()","total_count":1,"children":[]},{"name":"isMissingDirectUserColumn()","total_count":1,"children":[]},{"name":"useAuth()","total_count":1,"children":[]}]}]},{"name":"lib","total_count":121,"children":[{"name":"admin","total_count":50,"children":[{"name":"csv.js","total_count":8,"children":[{"name":"chunk()","total_count":1,"children":[]},{"name":"HEADER_ALIASES","total_count":1,"children":[]},{"name":"isEmail()","total_count":1,"children":[]},{"name":"mapHeaders()","total_count":1,"children":[]},{"name":"normaliseRole()","total_count":1,"children":[]},{"name":"ROLE_ALIASES","total_count":1,"children":[]},{"name":"VALID_ROLES","total_count":1,"children":[]},{"name":"validateCsvRows()","total_count":1,"children":[]}]},{"name":"cycles.js","total_count":11,"children":[{"name":"activateCycle()","total_count":1,"children":[]},{"name":"closeCycleNow()","total_count":1,"children":[]},{"name":"createCycle()","total_count":1,"children":[]},{"name":"CYCLE_STATE_LABELS","total_count":1,"children":[]},{"name":"cycleState()","total_count":1,"children":[]},{"name":"deactivateAll()","total_count":1,"children":[]},{"name":"loadCycleCounts()","total_count":1,"children":[]},{"name":"loadCycles()","total_count":1,"children":[]},{"name":"toLocalInput()","total_count":1,"children":[]},{"name":"translateCycleError()","total_count":1,"children":[]},{"name":"updateCycle()","total_count":1,"children":[]}]},{"name":"questionDiff.js","total_count":8,"children":[{"name":"cosmeticPatch()","total_count":1,"children":[]},{"name":"deriveQuestionKey()","total_count":1,"children":[]},{"name":"normaliseText()","total_count":1,"children":[]},{"name":"optionsChanged()","total_count":1,"children":[]},{"name":"requiresNewVersion()","total_count":1,"children":[]},{"name":"slugifyOptionValue()","total_count":1,"children":[]},{"name":"toComparable()","total_count":1,"children":[]},{"name":"validateQuestionDraft()","total_count":1,"children":[]}]},{"name":"questions.js","total_count":12,"children":[{"name":"audit()","total_count":1,"children":[]},{"name":"countAnswers()","total_count":1,"children":[]},{"name":"createQuestion()","total_count":1,"children":[]},{"name":"deactivateQuestion()","total_count":1,"children":[]},{"name":"insertVersion()","total_count":1,"children":[]},{"name":"loadAuditTrail()","total_count":1,"children":[]},{"name":"loadQuestionsForAdmin()","total_count":1,"children":[]},{"name":"loadScales()","total_count":1,"children":[]},{"name":"loadVersionHistory()","total_count":1,"children":[]},{"name":"reorderQuestions()","total_count":1,"children":[]},{"name":"restoreQuestion()","total_count":1,"children":[]},{"name":"updateQuestion()","total_count":1,"children":[]}]},{"name":"users.js","total_count":10,"children":[{"name":"createUsers()","total_count":1,"children":[]},{"name":"describeInvokeError()","total_count":1,"children":[]},{"name":"isMissingDirectUserColumn()","total_count":1,"children":[]},{"name":"loadAllEmails()","total_count":1,"children":[]},{"name":"loadUsers()","total_count":1,"children":[]},{"name":"removeUser()","total_count":1,"children":[]},{"name":"restoreUser()","total_count":1,"children":[]},{"name":"setUserStatus()","total_count":1,"children":[]},{"name":"translateUserError()","total_count":1,"children":[]},{"name":"updateUser()","total_count":1,"children":[]}]},{"name":"userSort.js","total_count":1,"children":[{"name":"sortUserRows()","total_count":1,"children":[]}]}]},{"name":"analytics","total_count":32,"children":[{"name":"csv.js","total_count":5,"children":[{"name":"buildCsv()","total_count":1,"children":[]},{"name":"COLUMNS","total_count":1,"children":[]},{"name":"fileName()","total_count":1,"children":[]},{"name":"IDENTITY_KEYS","total_count":1,"children":[]},{"name":"toRecord()","total_count":1,"children":[]}]},{"name":"insights.js","total_count":5,"children":[{"name":"buildInsights()","total_count":1,"children":[]},{"name":"isRankable()","total_count":1,"children":[]},{"name":"MIN_N","total_count":1,"children":[]},{"name":"STOP_WORDS","total_count":1,"children":[]},{"name":"topTerms()","total_count":1,"children":[]}]},{"name":"queries.js","total_count":11,"children":[{"name":"call()","total_count":1,"children":[]},{"name":"describeRpcError()","total_count":1,"children":[]},{"name":"loadChoiceDistribution()","total_count":1,"children":[]},{"name":"loadDistribution()","total_count":1,"children":[]},{"name":"loadExportRows()","total_count":1,"children":[]},{"name":"loadFilterOptions()","total_count":1,"children":[]},{"name":"loadQuestionStats()","total_count":1,"children":[]},{"name":"loadTextAnswers()","total_count":1,"children":[]},{"name":"loadTotals()","total_count":1,"children":[]},{"name":"loadTrends()","total_count":1,"children":[]},{"name":"params()","total_count":1,"children":[]}]},{"name":"scales.js","total_count":8,"children":[{"name":"assertDenominators()","total_count":1,"children":[]},{"name":"axisFor()","total_count":1,"children":[]},{"name":"formatAvg()","total_count":1,"children":[]},{"name":"formatNormalised()","total_count":1,"children":[]},{"name":"pool()","total_count":1,"children":[]},{"name":"spansMultipleScales()","total_count":1,"children":[]},{"name":"spansVersions()","total_count":1,"children":[]},{"name":"versionNote()","total_count":1,"children":[]}]},{"name":"sentiment.js","total_count":3,"children":[{"name":"createClassifier()","total_count":1,"children":[]},{"name":"LABELS","total_count":1,"children":[]},{"name":"NON_ANSWERS","total_count":1,"children":[]}]}]},{"name":"constants.js","total_count":7,"children":[{"name":"homePathFor()","total_count":1,"children":[]},{"name":"isAdmin()","total_count":1,"children":[]},{"name":"isRespondent()","total_count":1,"children":[]},{"name":"RESPONDENT_ROLES","total_count":1,"children":[]},{"name":"ROLE_LABELS","total_count":1,"children":[]},{"name":"ROLES","total_count":1,"children":[]},{"name":"safeRedirect()","total_count":1,"children":[]}]},{"name":"formSchema.js","total_count":7,"children":[{"name":"COURSE_KEYS","total_count":1,"children":[]},{"name":"findLastIndex()","total_count":1,"children":[]},{"name":"loadForm()","total_count":1,"children":[]},{"name":"loadScales()","total_count":1,"children":[]},{"name":"pickMeta()","total_count":1,"children":[]},{"name":"PROGRAM_KEYS","total_count":1,"children":[]},{"name":"sectionise()","total_count":1,"children":[]}]},{"name":"submissions.js","total_count":9,"children":[{"name":"cycleIsOpen()","total_count":1,"children":[]},{"name":"deleteSubmission()","total_count":1,"children":[]},{"name":"loadActiveCycle()","total_count":1,"children":[]},{"name":"loadMySubmissions()","total_count":1,"children":[]},{"name":"loadResponse()","total_count":1,"children":[]},{"name":"remapAnswersToCurrentVersions()","total_count":1,"children":[]},{"name":"saveSubmission()","total_count":1,"children":[]},{"name":"translateSaveError()","total_count":1,"children":[]},{"name":"writeAnswers()","total_count":1,"children":[]}]},{"name":"supabase.js","total_count":2,"children":[{"name":"describeUrlProblem()","total_count":1,"children":[]},{"name":"urlProblem","total_count":1,"children":[]}]},{"name":"validation.js","total_count":14,"children":[{"name":"allowedValues()","total_count":1,"children":[]},{"name":"answersToValues()","total_count":1,"children":[]},{"name":"bindingIdFor()","total_count":1,"children":[]},{"name":"isBlank()","total_count":1,"children":[]},{"name":"isNullish()","total_count":1,"children":[]},{"name":"planAnswerWrite()","total_count":1,"children":[]},{"name":"questionIdOf()","total_count":1,"children":[]},{"name":"sameAnswer()","total_count":1,"children":[]},{"name":"sameNumber()","total_count":1,"children":[]},{"name":"sameOptions()","total_count":1,"children":[]},{"name":"sameText()","total_count":1,"children":[]},{"name":"toAnswerRow()","total_count":1,"children":[]},{"name":"validateAnswer()","total_count":1,"children":[]},{"name":"validateForm()","total_count":1,"children":[]}]}]},{"name":"pages","total_count":27,"children":[{"name":"AdminAnalytics.jsx","total_count":11,"children":[{"name":"Analytics()","total_count":1,"children":[]},{"name":"Breakdown()","total_count":1,"children":[]},{"name":"EMPTY_FILTERS","total_count":1,"children":[]},{"name":"ExportTab()","total_count":1,"children":[]},{"name":"FeedbackTab()","total_count":1,"children":[]},{"name":"OverviewTab()","total_count":1,"children":[]},{"name":"Panel()","total_count":1,"children":[]},{"name":"RatingsTab()","total_count":1,"children":[]},{"name":"TABS","total_count":1,"children":[]},{"name":"TrendsTab()","total_count":1,"children":[]},{"name":"useAnalytics()","total_count":1,"children":[]}]},{"name":"AdminCycles.jsx","total_count":5,"children":[{"name":"AdminCycles()","total_count":1,"children":[]},{"name":"CycleForm()","total_count":1,"children":[]},{"name":"formatDate()","total_count":1,"children":[]},{"name":"sortCycles()","total_count":1,"children":[]},{"name":"suggestLabel()","total_count":1,"children":[]}]},{"name":"AdminHome.jsx","total_count":1,"children":[{"name":"AdminHome()","total_count":1,"children":[]}]},{"name":"AdminQuestions.jsx","total_count":2,"children":[{"name":"AdminQuestions()","total_count":1,"children":[]},{"name":"TYPE_LABELS","total_count":1,"children":[]}]},{"name":"AdminUsers.jsx","total_count":3,"children":[{"name":"AdminUsers()","total_count":1,"children":[]},{"name":"ALL_ROLES","total_count":1,"children":[]},{"name":"formatDate()","total_count":1,"children":[]}]},{"name":"FeedbackForm.jsx","total_count":1,"children":[{"name":"FeedbackForm()","total_count":1,"children":[]}]},{"name":"FeedbackHome.jsx","total_count":1,"children":[{"name":"FeedbackHome()","total_count":1,"children":[]}]},{"name":"Login.jsx","total_count":1,"children":[{"name":"Login()","total_count":1,"children":[]}]},{"name":"NotFound.jsx","total_count":1,"children":[{"name":"NotFound()","total_count":1,"children":[]}]},{"name":"SetPassword.jsx","total_count":1,"children":[{"name":"SetPassword()","total_count":1,"children":[]}]}]},{"name":"main.jsx","total_count":1,"children":[]}]},{"name":"supabase","total_count":64,"children":[{"name":"functions","total_count":9,"children":[{"name":"invite-users","total_count":9,"children":[{"name":"index.ts","total_count":9,"children":[{"name":"corsHeaders","total_count":1,"children":[]},{"name":"createOne()","total_count":1,"children":[]},{"name":"generateTemporaryPassword()","total_count":1,"children":[]},{"name":"isEmail()","total_count":1,"children":[]},{"name":"isMissingDirectUserColumn()","total_count":1,"children":[]},{"name":"json()","total_count":1,"children":[]},{"name":"recoverLegacyInvite()","total_count":1,"children":[]},{"name":"requireActiveAdmin()","total_count":1,"children":[]},{"name":"VALID_ROLES","total_count":1,"children":[]}]}]}]},{"name":"migrations","total_count":55,"children":[{"name":"0001_schema.sql","total_count":18,"children":[{"name":"academic_cycles","total_count":1,"children":[]},{"name":"answers","total_count":1,"children":[]},{"name":"forms","total_count":1,"children":[]},{"name":"freeze_answered_question_options()","total_count":1,"children":[]},{"name":"freeze_answered_question_version()","total_count":1,"children":[]},{"name":"profiles","total_count":1,"children":[]},{"name":"profiles_touch_updated_at","total_count":1,"children":[]},{"name":"question_audit","total_count":1,"children":[]},{"name":"question_options","total_count":1,"children":[]},{"name":"question_options_immutable","total_count":1,"children":[]},{"name":"question_versions","total_count":1,"children":[]},{"name":"question_versions_immutable","total_count":1,"children":[]},{"name":"questions","total_count":1,"children":[]},{"name":"rating_scale_options","total_count":1,"children":[]},{"name":"rating_scales","total_count":1,"children":[]},{"name":"responses","total_count":1,"children":[]},{"name":"responses_touch_updated_at","total_count":1,"children":[]},{"name":"touch_updated_at()","total_count":1,"children":[]}]},{"name":"0002_rls.sql","total_count":14,"children":[{"name":"academic_cycles","total_count":1,"children":[]},{"name":"answers","total_count":1,"children":[]},{"name":"current_role_type()","total_count":1,"children":[]},{"name":"cycle_is_open()","total_count":1,"children":[]},{"name":"forms","total_count":1,"children":[]},{"name":"is_admin()","total_count":1,"children":[]},{"name":"profiles","total_count":1,"children":[]},{"name":"question_audit","total_count":1,"children":[]},{"name":"question_options","total_count":1,"children":[]},{"name":"question_versions","total_count":1,"children":[]},{"name":"questions","total_count":1,"children":[]},{"name":"rating_scale_options","total_count":1,"children":[]},{"name":"rating_scales","total_count":1,"children":[]},{"name":"responses","total_count":1,"children":[]}]},{"name":"0003_seed.sql","total_count":2,"children":[{"name":"seed_options()","total_count":1,"children":[]},{"name":"seed_question()","total_count":1,"children":[]}]},{"name":"0004_auth_sync.sql","total_count":4,"children":[{"name":"handle_auth_user_signed_in()","total_count":1,"children":[]},{"name":"handle_new_auth_user()","total_count":1,"children":[]},{"name":"on_auth_user_created","total_count":1,"children":[]},{"name":"on_auth_user_signed_in","total_count":1,"children":[]}]},{"name":"0005_analytics.sql","total_count":11,"children":[{"name":"analytics_admin_ok()","total_count":1,"children":[]},{"name":"analytics_choice_distribution()","total_count":1,"children":[]},{"name":"analytics_distribution()","total_count":1,"children":[]},{"name":"analytics_export_rows()","total_count":1,"children":[]},{"name":"analytics_filter_options()","total_count":1,"children":[]},{"name":"analytics_question_stats()","total_count":1,"children":[]},{"name":"analytics_response_ids()","total_count":1,"children":[]},{"name":"analytics_scale_bounds()","total_count":1,"children":[]},{"name":"analytics_text_answers()","total_count":1,"children":[]},{"name":"analytics_totals()","total_count":1,"children":[]},{"name":"analytics_trends()","total_count":1,"children":[]}]},{"name":"0006_direct_users.sql","total_count":6,"children":[{"name":"current_role_type()","total_count":1,"children":[]},{"name":"handle_auth_user_password_changed()","total_count":1,"children":[]},{"name":"handle_new_auth_user()","total_count":1,"children":[]},{"name":"is_admin()","total_count":1,"children":[]},{"name":"on_auth_user_password_changed","total_count":1,"children":[]},{"name":"profiles","total_count":1,"children":[]}]}]}]},{"name":"vite.config.js","total_count":1,"children":[]}]};
+
+    function transformData(jsonData) {
+        // Helper function to recursively build the children structure
+        function processNode(node, parentL1StageName) {
+            let displayName = node.name;
+            // Append total_count if it exists and is not already in the name
+            if (node.total_count !== undefined) {
+                if (!/\(Total Count: \d+\)$/.test(displayName)) {
+                    displayName += ` (Total Count: ${node.total_count})`;
+                }
+            }
+
+            const newNode = { name: displayName };
+
+            if (parentL1StageName === "Root") {
+                 newNode.originalStageName = node.name;
+            } else {
+                newNode.originalStageName = parentL1StageName;
+            }
+
+            if (node.children && node.children.length > 0) {
+                const stageNameToPass = (parentL1StageName === "Root") ? node.name : parentL1StageName;
+                newNode.children = node.children.map(child => processNode(child, stageNameToPass));
+            }
+
+            return newNode;
+        }
+
+        let rootDisplayName = jsonData.name;
+        if (jsonData.total_count !== undefined && !/\(Total Count: \d+\)$/.test(rootDisplayName)) {
+            rootDisplayName += ` (Total Count: ${jsonData.total_count})`;
+        }
+
+        return {
+            name: rootDisplayName,
+            originalStageName: "Root",
+            children: (jsonData.children || []).map(child => processNode(child, "Root"))
+        };
+    }
+
+    const treeData = transformData(initialJsonData);
+
+    // Auto-populated phaseColors: every depth-1 child of the root gets
+    // a stable colour from a bigger palette so all top-level dirs are
+    // distinguishable.
+    const PALETTE = [
+      ["#3498DB","#2980B9","#AED6F1"], ["#2ECC71","#27AE60","#A9DFBF"],
+      ["#E74C3C","#C0392B","#F5B7B1"], ["#9B59B6","#8E44AD","#D7BDE2"],
+      ["#F39C12","#D68910","#FAD7A0"], ["#1ABC9C","#117864","#A2D9CE"],
+      ["#34495E","#1B2631","#ABB2B9"], ["#E67E22","#BA4A00","#F5CBA7"],
+      ["#16A085","#0E6655","#A2D9CE"], ["#D35400","#A04000","#EDBB99"],
+      ["#7F8C8D","#566573","#D5DBDB"], ["#C0392B","#7B241C","#F5B7B1"],
+      ["#2E86C1","#1B4F72","#A9CCE3"], ["#28B463","#196F3D","#A9DFBF"],
+      ["#AF7AC5","#6C3483","#D2B4DE"],
+    ];
+    const phaseColors = { "Root": { fill: "#4A4A4A", stroke: "#333333", collapsedFill: "#6C757D" },
+                          "Default": { fill: "#BDC3C7", stroke: "#95A5A6", collapsedFill: "#ECF0F1" } };
+    (initialJsonData.children || []).forEach((c, i) => {
+      const pal = PALETTE[i % PALETTE.length];
+      phaseColors[c.name] = { fill: pal[0], stroke: pal[1], collapsedFill: pal[2] };
+    });
+
+    const levelSpecificPalettes = {
+      0: { fill: "#4A4A4A", stroke: "#333333", collapsedFill: "#6C757D" },
+      2: { fill: "#6ab04c", stroke: "#508a38", collapsedFill: "#a3d391" },
+      3: { fill: "#f0932b", stroke: "#d0730f", collapsedFill: "#f6c07e" },
+      4: { fill: "#be2edd", stroke: "#a01cb3", collapsedFill: "#e08bf2" },
+      5: { fill: "#00a8ff", stroke: "#007ac1", collapsedFill: "#74d2ff" },
+      6: { fill: "#e55039", stroke: "#c23620", collapsedFill: "#f09a8d" },
+      default: { fill: "#747d8c", stroke: "#57606f", collapsedFill: "#a4b0be" }
+    };
+
+    const svgElement = d3.select("#tree-svg");
+    const initialSvgWidth = +svgElement.attr("width");
+    const initialSvgHeight = +svgElement.attr("height");
+    const margin = { top: 40, right: 120, bottom: 80, left: 450 };
+    let width = initialSvgWidth - margin.left - margin.right;
+    let height = initialSvgHeight - margin.top - margin.bottom;
+    const duration = 500;
+    let nodeCounter = 0;
+    const g = svgElement.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+    const treemap = d3.tree().nodeSize([40, 0]);
+    let rootNode = d3.hierarchy(treeData, d => d.children);
+    rootNode.x0 = 0;
+    rootNode.y0 = 0;
+
+    if (rootNode.children) {
+      rootNode.children.forEach(d_child => {
+        if (d_child.children) { collapseBranch(d_child); }
+      });
+    }
+    updateTree(rootNode);
+
+    function collapseBranch(d) { if (d.children) { d._children = d.children; d._children.forEach(collapseBranch); d.children = null; } }
+    function expandBranch(d) { if (d._children) { d.children = d._children; d._children = null; } if (d.children) { d.children.forEach(expandBranch); } }
+    window.expandAll = () => { expandBranch(rootNode); updateTree(rootNode); };
+    window.collapseAll = () => { if (rootNode.children) { rootNode.children.forEach(collapseBranch); } updateTree(rootNode); };
+    window.resetView = () => { if (rootNode.children) { rootNode.children.forEach(d_child => { if (d_child.children || d_child._children) { collapseBranch(d_child); } }); } if (rootNode._children && !rootNode.children) { rootNode.children = rootNode._children; rootNode._children = null; } updateTree(rootNode); };
+
+    function updateTree(source) {
+      const treeLayoutData = treemap(rootNode);
+      let nodes = treeLayoutData.descendants();
+      let links = treeLayoutData.descendants().slice(1);
+
+      let minX = 0;
+      let maxX = 0;
+      if (nodes.length > 0) {
+        minX = d3.min(nodes, d => d.x);
+        maxX = d3.max(nodes, d => d.x);
+      }
+
+      let neededHeight = Math.max(initialSvgHeight, maxX - minX + margin.top + margin.bottom + 100);
+      svgElement.transition().duration(duration / 2).attr("height", neededHeight);
+      g.transition().duration(duration / 2).attr("transform", `translate(${margin.left},${margin.top - minX + 40})`);
+
+      nodes.forEach(d => { d.y = d.depth * 400; }); // Adjust horizontal separation if needed
+
+      const node = g.selectAll('g.node').data(nodes, d => d.id || (d.id = ++nodeCounter));
+      const nodeEnter = node.enter().append('g')
+        .attr('class', d => "node" + (d.children || d._children ? " node--internal" : " node--leaf") + (d._children ? " _children" : ""))
+        .attr('transform', d => `translate(${source.y0},${source.x0})`)
+        .on('click', (event, d) => { if (d.children) { d._children = d.children; d.children = null; } else if (d._children) { d.children = d._children; d._children = null; } updateTree(d); })
+        .style('cursor', d => (d.children || d._children) ? 'pointer' : 'default');
+
+      nodeEnter.append('circle').attr('r', 1e-6);
+
+      nodeEnter.append('text')
+        .attr('dy', '.35em')
+        .attr('x', d => d.children || d._children ? -14 : 14)
+        .attr('text-anchor', d => d.children || d._children ? 'end' : 'start')
+        .style("fill-opacity", 1e-6)
+        .call(wrapText, 380);
+
+      const nodeUpdate = nodeEnter.merge(node);
+      nodeUpdate.transition().duration(duration)
+        .attr('transform', d => `translate(${d.y},${d.x})`)
+        .attr('class', d => "node" + (d.children ? " node--internal" : " node--leaf") + (d._children ? " node--internal _children" : ""));
+
+      nodeUpdate.select('circle').attr('r', 8.5)
+        .style('fill', d => {
+            let palette;
+            if (d.depth === 0) {
+                palette = levelSpecificPalettes[0];
+            } else if (d.depth === 1) {
+                palette = phaseColors[d.data.originalStageName] || phaseColors.Default;
+            } else {
+                palette = levelSpecificPalettes[d.depth] || levelSpecificPalettes.default;
+            }
+            if (d._children) return palette.collapsedFill;
+            if (d.children) return palette.fill;
+            return "#fff";
+        })
+        .style('stroke', d => {
+            let palette;
+            if (d.depth === 0) {
+                palette = levelSpecificPalettes[0];
+            } else if (d.depth === 1) {
+                palette = phaseColors[d.data.originalStageName] || phaseColors.Default;
+            } else {
+                palette = levelSpecificPalettes[d.depth] || levelSpecificPalettes.default;
+            }
+            return palette.stroke;
+        });
+      nodeUpdate.select('text').style("fill-opacity", 1).call(wrapText, 380);
+
+      const nodeExit = node.exit().transition().duration(duration).attr('transform', d => `translate(${source.y},${source.x})`).remove();
+      nodeExit.select('circle').attr('r', 1e-6);
+      nodeExit.select('text').style('fill-opacity', 1e-6);
+
+      const link = g.selectAll('path.link').data(links, d => d.id);
+      const linkEnter = link.enter().insert('path', "g").attr('class', 'link').attr('d', d => { const o = { x: source.x0, y: source.y0 }; return diagonal(o, o); });
+
+      linkEnter.merge(link).transition().duration(duration).attr('d', d => diagonal(d, d.parent))
+        .style('stroke', d => {
+            const sourceNode = d.parent;
+            if (!sourceNode) return phaseColors.Default.stroke;
+            const l1AncestorName = sourceNode.data.originalStageName;
+            const colorPalette = phaseColors[l1AncestorName] || phaseColors.Default;
+            return colorPalette.stroke;
+        });
+      link.exit().transition().duration(duration).attr('d', d => { const o = { x: source.x, y: source.y }; return diagonal(o, o); }).remove();
+      nodes.forEach(d => { d.x0 = d.x; d.y0 = d.y; });
+    }
+
+    function diagonal(s, d) { return `M ${s.y} ${s.x} C ${(s.y + d.y) / 2} ${s.x}, ${(s.y + d.y) / 2} ${d.x}, ${d.y} ${d.x}`; }
+
+    function wrapText(textElements, maxWidth) {
+        const textPartColors = {
+            name: '#343a40',
+            count: '#0056b3'
+        };
+        const countRegex = /(\s\(Total Count: \d+\))$/;
+
+        textElements.each(function () {
+            const textD3 = d3.select(this);
+            const originalNodeText = textD3.datum().data.name;
+            const x = parseFloat(textD3.attr("x") || 0);
+            const initialDy = textD3.attr("dy");
+            const textAnchor = textD3.attr("text-anchor");
+            const lineHeight = 1.1;
+
+            textD3.text(null);
+
+            let namePart = originalNodeText;
+            let countPartText = "";
+
+            const countMatch = originalNodeText.match(countRegex);
+            if (countMatch && originalNodeText.endsWith(countMatch[0])) {
+                namePart = originalNodeText.substring(0, originalNodeText.length - countMatch[0].length).trim();
+                countPartText = countMatch[0].trim();
+            }
+
+            const tokens = [];
+            namePart.split(/\s+/).filter(Boolean).forEach(word => {
+                tokens.push({ text: word, type: 'name' });
+            });
+            if (countPartText) {
+                tokens.push({ text: countPartText, type: 'count' });
+            }
+
+            if (tokens.length === 0 && originalNodeText) {
+                tokens.push({ text: originalNodeText, type: 'name' });
+            }
+
+            let currentTspan = textD3.append("tspan").attr("x", x).attr("dy", initialDy);
+            if (textAnchor === "end") currentTspan.attr("text-anchor", "end");
+
+            let lineTokens = [];
+
+            for (let i = 0; i < tokens.length; i++) {
+                const tokenObj = tokens[i];
+
+                lineTokens.push(tokenObj);
+                currentTspan.text(lineTokens.map(t => t.text).join(" "));
+
+                if (currentTspan.node().getComputedTextLength() > maxWidth && lineTokens.length > 1) {
+                    lineTokens.pop();
+
+                    currentTspan.text(null);
+                    lineTokens.forEach((prevToken, idx) => {
+                        currentTspan.append("tspan")
+                            .text((idx > 0 ? " " : "") + prevToken.text)
+                            .style("fill", textPartColors[prevToken.type] || textPartColors.name)
+                            .style("font-weight", prevToken.type === 'count' ? "bold" : "normal");
+                    });
+
+                    lineTokens = [tokenObj];
+                    currentTspan = textD3.append("tspan").attr("x", x).attr("dy", lineHeight + "em");
+                    if (textAnchor === "end") currentTspan.attr("text-anchor", "end");
+                }
+            }
+
+            currentTspan.text(null);
+            lineTokens.forEach((token, idx) => {
+                currentTspan.append("tspan")
+                    .text((idx > 0 ? " " : "") + token.text)
+                    .style("fill", textPartColors[token.type] || textPartColors.name)
+                    .style("font-weight", token.type === 'count' ? "bold" : "normal");
+            });
+
+            if (textD3.selectAll("tspan > tspan").empty() && textD3.select("tspan").text().length === 0 && originalNodeText) {
+                let t = textD3.select("tspan");
+                let displayText = originalNodeText;
+                t.text(displayText).style("fill", textPartColors.name);
+                if (t.node() && t.node().getComputedTextLength() > maxWidth && displayText.length > 20) {
+                    let estimatedChars = Math.floor(maxWidth / (t.node().getComputedTextLength()/displayText.length) );
+                    displayText = displayText.substring(0, Math.max(0, estimatedChars - 3)) + "...";
+                    t.text(displayText);
+                }
+            }
+        });
+    }
+  </script>
+</body>
+</html>

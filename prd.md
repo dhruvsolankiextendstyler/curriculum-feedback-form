@@ -96,10 +96,10 @@ See §1.3.
 ## 5. Functional Requirements
 
 ### 5.1 Authentication & Access
-- **FR-1** Users log in with email + password.
+- **FR-1** Users log in with **email or SAP ID** + password. The SAP ID is optional and unique; an account without one signs in by email. Whichever identifier is entered, the password is the same.
 - **FR-2** Only admin-registered users can log in; no public signup.
 - **FR-3** On first login, user is prompted to set/change password (temporary password issued at registration, OR password-set link).
-- **FR-4** Password reset via email.
+- **FR-4** Password reset via email, requested with either identifier.
 - **FR-5** Role-based access control: admins → admin panel; respondents → user panel only.
 - **FR-6** Session persistence and secure logout.
 
@@ -118,11 +118,11 @@ See §1.3.
 - **FR-18** (Optional) Save draft / resume — *nice-to-have*.
 
 ### 5.3 Admin Panel — User Management
-- **FR-19** Admin can register a new user: email, name, stakeholder type (role).
-- **FR-20** Admin can edit a user's details/role.
+- **FR-19** Admin can register a new user: email, name, stakeholder type (role), and an optional SAP ID.
+- **FR-20** Admin can edit a user's details/role, including adding, changing or removing their SAP ID. Only an admin can set a SAP ID.
 - **FR-21** Admin can remove/deactivate a user.
-- **FR-22** Admin can view a list of all users with filters (by type, status) and search by name/email.
-- **FR-23** **Bulk import users via CSV** (required, not optional — see scale in §4). Import shows a preview, validates rows, reports per-row errors, and skips duplicates.
+- **FR-22** Admin can view a list of all users with filters (by type, status) and search by name, email or SAP ID.
+- **FR-23** **Bulk import users via CSV** (required, not optional — see scale in §4). Import shows a preview, validates rows, reports per-row errors, and skips duplicates. The optional `sap_id` column is validated for shape and for collisions inside the file and against existing accounts.
 - **FR-24** New accounts receive a unique temporary password and must replace it on first sign-in. Invite status is not stored.
 
 ### 5.4 Admin Panel — Question Management
@@ -341,7 +341,7 @@ B.A. · B.A.MMC · B.Com · B.Com Honours · BAF · BFM · BBI · BMS · B.Sc. �
 ## 9. Data Model (high-level)
 
 Tables (Supabase/Postgres):
-- **users** — id, email, name, role (admin | academic_peer | student | employer | alumni | faculty), status, must_change_password, removed_at, created_at.
+- **users** — id, email, name, **sap_id** (optional, unique — the second sign-in identifier), role (admin | academic_peer | student | employer | alumni | faculty), status, must_change_password, removed_at, created_at.
 - **academic_cycles** — id, label (e.g. "2025–26"), is_active, opens_at, **closes_at**.
 - **forms** — id, stakeholder_type, title (one form per stakeholder type).
 - **questions** — id, form_id, **question_key** (stable across versions), is_required, display_order, is_active, deleted_at, current_version_id.
@@ -361,6 +361,7 @@ Tables (Supabase/Postgres):
 - **Versioning** (FR-31): `answers.question_version_id` points at a specific immutable version. Editing a question inserts a new `question_versions` row and repoints `questions.current_version_id`; historical answers are untouched.
 - **Soft delete** (FR-32): live forms read `WHERE is_active = true`; analytics and exports read all versions regardless of `is_active`.
 - **Trend grouping** (FR-34/FR-39): analytics group by `questions.question_key` to follow a question across rewordings, and surface a version count so a mixed average is never presented as if it were one consistent question.
+- **One SAP ID per person** (FR-1): `UNIQUE (sap_id)` on users, with NULL allowed any number of times so the field stays optional. Stored trimmed and upper-cased by a trigger, which is what makes the uniqueness case-insensitive. A SAP ID may not contain `@`: the login screen has one field for both identifiers and tells them apart by it.
 
 ---
 

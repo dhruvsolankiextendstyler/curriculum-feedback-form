@@ -1,4 +1,6 @@
 import { supabase } from '../supabase'
+import { describeFunctionError } from '../functionError'
+import { SAP_ID_HINT, validateSapId } from '../identifier'
 import { chunk } from './csv'
 import { sortUserRows } from './userSort'
 
@@ -11,6 +13,26 @@ export { sortUserRows } from './userSort'
  * Auth account stays in the Edge Function because it requires service_role.
  */
 
+/**
+ * The columns the user list wants, widest first.
+ *
+ * The frontend can be deployed before a migration reaches Supabase. Each entry
+ * drops what the next-oldest schema lacks, so that window shows the users it can
+ * describe instead of turning a schema error into an empty list.
+ */
+const USER_COLUMN_SETS = [
+  'id, email, full_name, sap_id, role, status, must_change_password, removed_at, removed_by, created_at',
+  'id, email, full_name, role, status, must_change_password, removed_at, removed_by, created_at',
+  'id, email, full_name, role, status, created_at',
+]
+
+const USER_ROW_DEFAULTS = {
+  sap_id: null,
+  must_change_password: false,
+  removed_at: null,
+  removed_by: null,
+}
+
 export async function loadUsers({
   role = null,
   status = null,
@@ -18,69 +40,91 @@ export async function loadUsers({
   view = 'current',
   sort = 'recent',
 } = {}) {
-  let query = supabase
-    .from('profiles')
-    .select(
-      'id, email, full_name, role, status, must_change_password, removed_at, removed_by, created_at',
-    )
+  let lastError = null
 
-  query =
-    view === 'removed'
-      ? query.not('removed_at', 'is', null)
-      : query.is('removed_at', null)
+  for (const columns of USER_COLUMN_SETS) {
+    // Soft removal arrived with the columns that describe it, so on an older
+    // schema that list is correctly empty rather than an error.
+    if (!columns.includes('removed_at') && view === 'removed') return []
+
+    const { data, error } = await buildUserQuery(columns, { role, status, search, view })
+
+    if (!error) {
+      const rows = (data ?? []).map((row) => ({ ...USER_ROW_DEFAULTS, ...row }))
+      return sortUserRows(rows, sort, view)
+    }
+
+    lastError = error
+    if (!isMissingProfileColumn(error.message)) break
+  }
+
+  throw new Error(lastError.message)
+}
+
+function buildUserQuery(columns, { role, status, search, view }) {
+  let query = supabase.from('profiles').select(columns)
+
+  if (columns.includes('removed_at')) {
+    query =
+      view === 'removed'
+        ? query.not('removed_at', 'is', null)
+        : query.is('removed_at', null)
+  }
 
   if (role) query = query.eq('role', role)
   if (status) query = query.eq('status', status)
-  if (search.trim()) {
-    const term = `%${search.trim()}%`
-    query = query.or(`email.ilike.${term},full_name.ilike.${term}`)
+
+  const term = search.trim()
+  if (term) {
+    // FR-22, plus the SAP ID an admin is most likely to be handed on paper.
+    const fields = ['email', 'full_name']
+    if (columns.includes('sap_id')) fields.push('sap_id')
+    query = query.or(fields.map((field) => `${field}.ilike.${likeValue(term)}`).join(','))
   }
 
-  const { data, error } = await query
-  if (!error) return sortUserRows(data ?? [], sort, view)
+  return query
+}
 
-  // The frontend can be deployed before migration 0006 reaches Supabase. In
-  // that window, show the existing profiles instead of turning a schema error
-  // into an empty user list. Removed users cannot exist in the legacy schema,
-  // so that view is correctly empty until the migration is applied.
-  if (!isMissingDirectUserColumn(error.message)) throw new Error(error.message)
-  if (view === 'removed') return []
+/**
+ * PostgREST splits an `or` list on commas and parentheses, so a search term
+ * containing either has to be quoted or it corrupts the filter into a 400.
+ * Inner quotes and backslashes are escaped for the same reason.
+ */
+const likeValue = (term) => `"%${term.replace(/[\\"]/g, (char) => `\\${char}`)}%"`
 
-  let legacy = supabase
-    .from('profiles')
-    .select('id, email, full_name, role, status, created_at')
-  if (role) legacy = legacy.eq('role', role)
-  if (status) legacy = legacy.eq('status', status)
-  if (search.trim()) {
-    const term = `%${search.trim()}%`
-    legacy = legacy.or(`email.ilike.${term},full_name.ilike.${term}`)
+/** Both identifiers a CSV row could collide with, in one round trip. */
+export async function loadExistingIdentifiers() {
+  const { data, error } = await supabase.from('profiles').select('email, sap_id')
+
+  if (error) {
+    if (!isMissingProfileColumn(error.message)) throw new Error(error.message)
+    const legacy = await supabase.from('profiles').select('email')
+    if (legacy.error) throw new Error(legacy.error.message)
+    return { emails: emailsOf(legacy.data), sapIds: [] }
   }
 
-  const { data: legacyRows, error: legacyError } = await legacy
-  if (legacyError) throw new Error(legacyError.message)
-  return sortUserRows(
-    (legacyRows ?? []).map((row) => ({
-      ...row,
-      must_change_password: false,
-      removed_at: null,
-      removed_by: null,
-    })),
-    sort,
-    view,
-  )
+  return {
+    emails: emailsOf(data),
+    sapIds: (data ?? []).map((row) => row.sap_id).filter(Boolean),
+  }
 }
 
-export async function loadAllEmails() {
-  const { data, error } = await supabase.from('profiles').select('email')
-  if (error) throw new Error(error.message)
-  return (data ?? []).map((row) => row.email.toLowerCase())
-}
+const emailsOf = (rows) => (rows ?? []).map((row) => row.email.toLowerCase())
 
-/** FR-20: edit name or role. Email is immutable because it identifies Auth. */
-export async function updateUser(userId, { full_name, role }) {
+/**
+ * FR-20: edit name, role, or SAP ID. The email address stays immutable because
+ * it is what identifies the account to Auth.
+ */
+export async function updateUser(userId, { full_name, role, sap_id }) {
   const patch = {}
   if (full_name !== undefined) patch.full_name = full_name.trim() || null
   if (role !== undefined) patch.role = role
+  if (sap_id !== undefined) {
+    const check = validateSapId(sap_id)
+    if (!check.ok) throw new Error(check.reason)
+    // null clears it: a SAP ID can be removed as well as changed.
+    patch.sap_id = check.value
+  }
 
   if (Object.keys(patch).length === 0) return
 
@@ -150,7 +194,18 @@ export async function createUsers(users, onProgress = () => {}) {
       body: { users: batch },
     })
 
-    if (error) throw new Error(await describeInvokeError(error))
+    if (error) {
+      throw new Error(
+        await describeFunctionError(error, {
+          slug: 'invite-users',
+          statusHints: {
+            401: 'Your session has expired. Please sign in again.',
+            403: 'Admin access required to create users.',
+          },
+          fallback: 'The user creation request failed.',
+        }),
+      )
+    }
 
     totals.created += body?.created ?? 0
     totals.skipped += body?.skipped ?? 0
@@ -164,38 +219,26 @@ export async function createUsers(users, onProgress = () => {}) {
   return totals
 }
 
-async function describeInvokeError(error) {
-  try {
-    const body = await error.context?.json?.()
-    if (body?.error) return body.error
-  } catch {
-    // A platform error page is not JSON; use the status-specific fallback.
-  }
-
-  const status = error.context?.status
-  if (status === 404) {
-    return (
-      'The user provisioning function is not deployed to this Supabase project. ' +
-      'Run: supabase functions deploy invite-users'
-    )
-  }
-  if (status === 401) return 'Your session has expired. Please sign in again.'
-  if (status === 403) return 'Admin access required to create users.'
-
-  return error.message ?? 'The user creation request failed.'
-}
-
-function isMissingDirectUserColumn(message = '') {
+function isMissingProfileColumn(message = '') {
   return (
-    /(must_change_password|removed_at|removed_by)/i.test(message) &&
+    /(sap_id|must_change_password|removed_at|removed_by)/i.test(message) &&
     /(does not exist|could not find|schema cache)/i.test(message)
   )
 }
 
 function translateUserError(error) {
   const message = error.message ?? 'Could not update this user.'
-  if (isMissingDirectUserColumn(message)) {
+  if (/sap_id/i.test(message) && isMissingProfileColumn(message)) {
+    return 'SAP IDs need the database migration applied first: supabase/migrations/0007_sap_id.sql.'
+  }
+  if (isMissingProfileColumn(message)) {
     return 'The user-management database migration is not applied yet. Apply supabase/migrations/0006_direct_users.sql.'
+  }
+  if (/profiles_sap_id_unique/i.test(message)) {
+    return 'That SAP ID is already assigned to another user.'
+  }
+  if (/profiles_sap_id_format/i.test(message)) {
+    return `Invalid SAP ID. Use ${SAP_ID_HINT}.`
   }
   if (/row-level security/i.test(message) || error.code === '42501') {
     return 'You do not have permission for that change.'

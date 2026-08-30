@@ -3,6 +3,7 @@ import AdminNav from '../components/AdminNav'
 import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
 import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../lib/constants'
+import { SAP_ID_HINT } from '../lib/identifier'
 import {
   createUsers,
   loadUsers,
@@ -90,6 +91,7 @@ export default function AdminUsers() {
     try {
       await updateUser(editing.id, {
         full_name: editing.full_name ?? '',
+        sap_id: editing.sap_id ?? '',
         role: editing.role,
       })
       setNotice(`Saved changes to ${editing.email}.`)
@@ -206,7 +208,7 @@ export default function AdminUsers() {
           <input
             id="filter-search"
             type="search"
-            placeholder="Name or email"
+            placeholder="Name, email or SAP ID"
             value={filters.search}
             onChange={(event) =>
               setFilters((current) => ({ ...current, search: event.target.value }))
@@ -231,6 +233,7 @@ export default function AdminUsers() {
                 <tr>
                   <th scope="col">Name</th>
                   <th scope="col">Email</th>
+                  <th scope="col">SAP ID</th>
                   <th scope="col">Role</th>
                   <th scope="col">Status</th>
                   <th scope="col">{removedView ? 'Removed' : 'Added'}</th>
@@ -247,6 +250,7 @@ export default function AdminUsers() {
                   >
                     <td>{user.full_name || <span className="muted">-</span>}</td>
                     <td>{user.email}</td>
+                    <td>{user.sap_id || <span className="muted">-</span>}</td>
                     <td>{ROLE_LABELS[user.role] ?? user.role}</td>
                     <td>
                       {removedView ? (
@@ -327,6 +331,23 @@ export default function AdminUsers() {
                 setEditing((current) => ({ ...current, full_name: event.target.value }))
               }
             />
+
+            <label htmlFor="edit-sap-id">SAP ID (optional)</label>
+            <input
+              id="edit-sap-id"
+              type="text"
+              autoCapitalize="characters"
+              spellCheck="false"
+              aria-describedby="edit-sap-id-hint"
+              value={editing.sap_id ?? ''}
+              onChange={(event) =>
+                setEditing((current) => ({ ...current, sap_id: event.target.value }))
+              }
+            />
+            <p className="field-hint" id="edit-sap-id-hint">
+              Signs in with this or with {editing.email}. Clear the field to remove
+              it. {SAP_ID_HINT}.
+            </p>
 
             <label htmlFor="edit-role">Role</label>
             <select

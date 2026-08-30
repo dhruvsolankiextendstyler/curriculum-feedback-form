@@ -180,6 +180,13 @@ button.linklike {
   margin: 12px 0 0;
 }
 
+/* Guidance that belongs to the field above it, not to the form. */
+.field-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
+
 /* ---------- data display ---------- */
 .kv {
   display: grid;

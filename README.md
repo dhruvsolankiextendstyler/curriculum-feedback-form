@@ -44,6 +44,7 @@ In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CL
 | `0004_auth_sync.sql` | Mirrors `auth.users` into `profiles` on account creation |
 | `0005_analytics.sql` | Admin-only aggregate functions behind the dashboard |
 | `0006_direct_users.sql` | Direct accounts, temporary-password gate, soft user removal |
+| `0007_sap_id.sql` | Optional unique SAP ID on a profile, usable in place of the email at sign-in |
 
 ### 4. Create the first admin
 
@@ -64,23 +65,33 @@ on conflict (id) do update set role = 'admin', status = 'active';
 npm run dev
 ```
 
-### 6. Deploy the user provisioning function
+### 6. Deploy the Edge Functions
 
-Creating an auth account requires the Supabase **service_role** key, which
-bypasses every RLS policy and must never reach the browser. It lives only inside
-a Supabase Edge Function, `supabase/functions/invite-users/`, where Supabase
-injects the key from its own environment — there is no key to copy anywhere.
+Two functions, for two things the browser must not be trusted with.
+
+`invite-users` creates auth accounts, which needs the Supabase **service_role**
+key — it bypasses every RLS policy and must never reach the browser. `sign-in`
+exchanges a SAP ID for a session, which needs to read the SAP-ID-to-address
+mapping without handing that mapping to the caller. Both keys come from the Edge
+runtime's own environment, so there is nothing to copy anywhere.
 
 ```bash
 npm i -g supabase
 supabase login
 supabase link --project-ref <your-project-ref>
 supabase functions deploy invite-users
+supabase functions deploy sign-in --no-verify-jwt
 ```
 
-User creation works from `npm run dev` too because the function runs on
-Supabase, not locally. It creates confirmed accounts directly and returns a
-temporary password to the admin; it does not send an invitation email.
+**`--no-verify-jwt` is required on `sign-in`, and only on `sign-in`.** Its callers
+have not signed in yet — that is the point of it. Deployed with verification on,
+SAP-ID login returns 401 for everyone. `invite-users` needs the opposite: leave
+verification on, so the platform rejects anonymous callers before the function
+runs. The function additionally checks that the caller is an active admin.
+
+Both work from `npm run dev` too, because they run on Supabase rather than
+locally. Account creation returns a temporary password to the admin; it does not
+send an invitation email.
 
 > `.env` needs only the two `VITE_` values. The `service_role` key must never go
 > in `.env` or any `VITE_` variable — Vite inlines those into the bundle it ships
@@ -132,6 +143,39 @@ the RLS policy itself.
 **Scale to 100–500 users (FR-23).** CSV imports create accounts in bounded
 batches and produce a temporary-password file for the administrator.
 
+### Signing in with a SAP ID never discloses an address
+
+FR-1 accepts two identifiers in one field, told apart by the `@`. That is why a
+SAP ID is forbidden from containing one — in the check constraint, in the browser
+and in the Edge Functions, all three.
+
+The interesting part is what does the lookup. Supabase Auth is keyed by email, so
+a SAP ID has to be exchanged for an address before any password can be checked.
+The obvious implementation — an `email_for_sap_id()` RPC — is the wrong one: the
+anon key is published in the browser bundle, SAP IDs run in ranges, and anyone
+could walk that range and collect the email address of every student in the
+college. So there is no such function. The lookup happens inside the `sign-in`
+Edge Function under `service_role`, which returns a **session or a generic
+failure**, never the address.
+
+Two consequences worth knowing:
+
+- **Wrong SAP ID and wrong password are indistinguishable.** Both answer
+  `Invalid login credentials`, after the same round trip — an unmatched
+  identifier is sent to an address in the reserved `.invalid` domain rather than
+  short-circuited, so response timing does not answer the question either.
+- **Email sign-in does not go through the function.** The browser talks straight
+  to Auth for that. A broken or undeployed `sign-in` costs SAP-ID login, not all
+  login, which matters because the people who would fix it are administrators.
+
+Routing a password grant through a function does cost the per-IP rate limit Auth
+would normally apply, since it sees Supabase's infrastructure as the caller. The
+function forwards the real client IP and keeps its own failure counter, generous
+enough that a campus behind one NAT address is not locked out by its own traffic.
+
+Only an admin can write `sap_id`, enforced by the same trigger that stops a
+respondent granting themselves a role.
+
 ### Rating scales are not interchangeable
 
 Four different scales are seeded because the source forms differ. Faculty use a
@@ -174,6 +218,10 @@ number and contact details are *answers* — ordinary questions on the form — 
 they are excluded by `question_key` with no opt-in. A downloaded file has left
 the app's access controls behind, and NFR-4 keeps personal data inside them.
 
+The `sap_id` on a profile is a different thing from the SAP number *answered* on
+the student form, despite the name: it is a sign-in credential, and analytics
+never join to `profiles` at all, so it cannot reach an export by either route.
+
 Free text is written through papaparse with `escapeFormulae`, since a quoted
 cell is still an executable formula when an admin opens the file in Excel.
 
@@ -212,13 +260,15 @@ prd.md                     requirements (source of truth)
 wrangler.jsonc             Cloudflare Workers deploy + SPA fallback
 scripts/                   unit tests, run by `npm run check`
 supabase/
-  migrations/              schema, RLS, seed, auth sync, analytics
+  migrations/              schema, RLS, seed, auth sync, analytics, SAP ID
+  functions/_shared/       SAP ID rules used by both functions
   functions/invite-users/  admin-only direct provisioning (service_role stays here)
+  functions/sign-in/       SAP ID -> session, so the address never leaves the server
 src/
-  lib/             supabase client, validation, form schema, submissions
+  lib/             supabase client, identifier rules, validation, form schema, submissions
   lib/admin/       users, questions, cycles, question diffing
   lib/analytics/   RPC wrappers, scale normalising, sentiment, insights, CSV
-  context/         AuthContext — session + profile + role
+  context/         AuthContext — session + profile + role, and both sign-in paths
   components/      ProtectedRoute, Layout, fields, ConfigError
   components/admin/ AnalyticsCharts
   pages/           Login, SetPassword, FeedbackHome, FeedbackForm
@@ -234,9 +284,12 @@ analytics dashboard — response
 counts, per-question averages and distributions, year-over-year trends,
 rule-based sentiment with auto-insights, and CSV export (FR-34 to FR-42).
 
-Run `npm run check` for the full check suite covering redirect safety,
-validation, admin logic, answer remapping across question versions, and the
-analytics scale/sentiment/insight/CSV rules.
+Sign-in accepts an email address or a SAP ID (FR-1). SAP IDs are optional, unique,
+and admin-managed; an account without one is unaffected.
+
+Run `npm run check` for the full check suite covering redirect safety, sign-in
+identifier rules, validation, admin logic, answer remapping across question
+versions, and the analytics scale/sentiment/insight/CSV rules.
 
 Not built: the optional PDF export (FR-43).
 
