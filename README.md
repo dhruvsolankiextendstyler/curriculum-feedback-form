@@ -45,6 +45,8 @@ In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CL
 | `0005_analytics.sql` | Admin-only aggregate functions behind the dashboard |
 | `0006_direct_users.sql` | Direct accounts, temporary-password gate, soft user removal |
 | `0007_sap_id.sql` | Optional unique SAP ID on a profile, usable in place of the email at sign-in |
+| `0008_departments.sql` | Streams and their departments, the department on a user and on a response, and the stream/department analytics filters |
+| `0009_privilege_guard.sql` | **Security fix.** Makes the profile privilege guard actually reject respondent self-edits — see below |
 
 ### 4. Create the first admin
 
@@ -176,6 +178,82 @@ enough that a campus behind one NAT address is not locked out by its own traffic
 Only an admin can write `sap_id`, enforced by the same trigger that stops a
 respondent granting themselves a role.
 
+### A response records its department, and keeps it
+
+`/admin/departments` manages two levels of reference data — streams (Science,
+Commerce, Arts) and the departments inside them — and `/admin/users` assigns a
+department to an account. Students and faculty must have one; employers, alumni
+and academic peers are outside the college structure and are left without,
+because the alternative is placeholder departments cluttering every filter.
+
+The load-bearing decision is that **`responses` carries its own `department_id`,
+stamped from the respondent's profile by a trigger when the row is created.** It is
+not joined through `profiles` at read time. The reasoning is the one already
+written into `0005_analytics.sql` for the stakeholder dimension: an attribute that
+can change on the person would retroactively rewrite past cycles. A student
+transferring from Statistics to Data Science must not move three years of
+Statistics feedback with them.
+
+Two consequences worth knowing:
+
+- **Responses submitted before a department was assigned carry none**, so a
+  department filter hides them. The dashboard says so when either new filter is on.
+- **The browser never sends `department_id` on a response.** The trigger overwrites
+  whatever arrives, and a second trigger refuses to let an edit change it. So
+  `src/lib/submissions.js` has nothing to do with departments at all.
+
+Only an admin can write `profiles.department_id`, through the same privilege guard
+as `role`, `status` and `sap_id`.
+
+Archiving and deleting are different operations. Archiving (`is_active = false`)
+takes a department out of the pickers while its people keep it and its responses
+stay in analytics — the same shape as question soft-delete (FR-32). Deleting
+removes the row, and `on delete restrict` means Postgres refuses while anything
+still references it; the page turns that refusal into the suggestion to archive.
+
+Stream and department are deliberately **not** columns in the CSV export. The
+export already strips the faculty form's `department` *answer* as identifying data
+under NFR-4, and adding the assigned department back would undo that by another
+route. Filtering an export by department still works.
+
+The student form's own `program` dropdown is untouched. Its options are immutable
+once answered (FR-31), so pointing them at this table would need a new question
+version and an answer migration; department is a new analytics dimension beside
+program, not a replacement for it.
+
+### `current_user` lies inside a SECURITY DEFINER function
+
+`0009_privilege_guard.sql` fixes a hole that had been open since `0002_rls.sql`.
+
+`is_privileged_writer()` decided whether a caller may write the protected columns
+on a profile, and part of its test was
+`current_user in ('postgres', 'supabase_admin', 'service_role')`. But it is itself
+`SECURITY DEFINER` and owned by `postgres` — and **inside a `SECURITY DEFINER`
+function `current_user` is the function's owner, not the caller.** That branch was
+therefore always true, the function always returned true, and every clause it
+protects was a no-op: `role`, `status`, `sap_id`, `removed_at`,
+`must_change_password` and `department_id`. A student holding nothing but their own
+JWT could run `update profiles set role = 'admin' where id = auth.uid()` and the
+trigger would wave it through. That was reproduced against this database, not
+inferred.
+
+The fix asks a question `SECURITY DEFINER` does not rewrite. PostgREST issues
+`SET LOCAL ROLE` for every request, and that GUC survives: measured inside the same
+function, `current_user` reads `postgres` while `role` still reads `authenticated`.
+`anon` and `authenticated` are precisely the two roles reachable with the published
+anon key or an end-user token, so those two have to prove they are an admin;
+everything else — `service_role`, the Auth service's own connection, psql, a
+migration — already holds database credentials.
+
+The old `request.jwt.claim.role` check went with it. That is the pre-2022 spelling
+and reads NULL on this project; Supabase publishes the verified JWT as the JSON
+`request.jwt.claims`. It was dead code, hidden by the broken branch above.
+
+Both directions are verified: the six self-edits above are now refused with their
+own messages, while an admin editing another account, the `invite-users` function
+under `service_role`, and the Auth trigger that clears `must_change_password` on
+first sign-in all still work.
+
 ### Rating scales are not interchangeable
 
 Four different scales are seeded because the source forms differ. Faculty use a
@@ -260,19 +338,19 @@ prd.md                     requirements (source of truth)
 wrangler.jsonc             Cloudflare Workers deploy + SPA fallback
 scripts/                   unit tests, run by `npm run check`
 supabase/
-  migrations/              schema, RLS, seed, auth sync, analytics, SAP ID
+  migrations/              schema, RLS, seed, auth sync, analytics, SAP ID, departments
   functions/_shared/       SAP ID rules used by both functions
   functions/invite-users/  admin-only direct provisioning (service_role stays here)
   functions/sign-in/       SAP ID -> session, so the address never leaves the server
 src/
   lib/             supabase client, identifier rules, validation, form schema, submissions
-  lib/admin/       users, questions, cycles, question diffing
+  lib/admin/       users, departments, questions, cycles, question diffing
   lib/analytics/   RPC wrappers, scale normalising, sentiment, insights, CSV
   context/         AuthContext — session + profile + role, and both sign-in paths
   components/      ProtectedRoute, Layout, fields, ConfigError
   components/admin/ AnalyticsCharts
   pages/           Login, SetPassword, FeedbackHome, FeedbackForm
-  pages/           AdminUsers, AdminQuestions, AdminCycles, AdminAnalytics
+  pages/           AdminUsers, AdminDepartments, AdminQuestions, AdminCycles, AdminAnalytics
 ```
 
 ## Status
@@ -287,9 +365,15 @@ rule-based sentiment with auto-insights, and CSV export (FR-34 to FR-42).
 Sign-in accepts an email address or a SAP ID (FR-1). SAP IDs are optional, unique,
 and admin-managed; an account without one is unaffected.
 
+Streams and departments are managed at `/admin/departments` and assigned to
+accounts on the Users page (FR-44 to FR-48). Students and faculty must have one.
+Both are filters on the user list and the analytics dashboard, and both are seeded
+with a starting list drawn from the programs the student form already offers.
+
 Run `npm run check` for the full check suite covering redirect safety, sign-in
-identifier rules, validation, admin logic, answer remapping across question
-versions, and the analytics scale/sentiment/insight/CSV rules.
+identifier rules, validation, admin logic, department rules and CSV resolution,
+answer remapping across question versions, and the analytics
+scale/sentiment/insight/CSV rules.
 
 Not built: the optional PDF export (FR-43).
 

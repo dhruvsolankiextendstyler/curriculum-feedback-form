@@ -2,6 +2,7 @@ import { supabase } from '../supabase'
 import { describeFunctionError } from '../functionError'
 import { SAP_ID_HINT, validateSapId } from '../identifier'
 import { chunk } from './csv'
+import { departmentRequiredFor } from './departmentRules'
 import { sortUserRows } from './userSort'
 
 export { sortUserRows } from './userSort'
@@ -13,14 +14,22 @@ export { sortUserRows } from './userSort'
  * Auth account stays in the Edge Function because it requires service_role.
  */
 
+/** The filter value meaning "has no department", distinct from "any". */
+export const NO_DEPARTMENT = 'none'
+
 /**
  * The columns the user list wants, widest first.
  *
  * The frontend can be deployed before a migration reaches Supabase. Each entry
  * drops what the next-oldest schema lacks, so that window shows the users it can
  * describe instead of turning a schema error into an empty list.
+ *
+ * department_id is an id only: the page already loads the department list for its
+ * own pickers, so it names the department from that rather than paying for a
+ * two-level PostgREST embed on every query.
  */
 const USER_COLUMN_SETS = [
+  'id, email, full_name, sap_id, role, department_id, status, must_change_password, removed_at, removed_by, created_at',
   'id, email, full_name, sap_id, role, status, must_change_password, removed_at, removed_by, created_at',
   'id, email, full_name, role, status, must_change_password, removed_at, removed_by, created_at',
   'id, email, full_name, role, status, created_at',
@@ -28,6 +37,7 @@ const USER_COLUMN_SETS = [
 
 const USER_ROW_DEFAULTS = {
   sap_id: null,
+  department_id: null,
   must_change_password: false,
   removed_at: null,
   removed_by: null,
@@ -39,15 +49,30 @@ export async function loadUsers({
   search = '',
   view = 'current',
   sort = 'recent',
+  department = '',
+  departmentIds = null,
 } = {}) {
+  // A stream filter resolves to the ids of the departments in it. An empty stream
+  // matches nobody, which `in.()` cannot express — answer it here instead.
+  if (Array.isArray(departmentIds) && departmentIds.length === 0 && !department) return []
+
   let lastError = null
 
   for (const columns of USER_COLUMN_SETS) {
     // Soft removal arrived with the columns that describe it, so on an older
     // schema that list is correctly empty rather than an error.
     if (!columns.includes('removed_at') && view === 'removed') return []
+    // Same for the department filters: nothing to filter on yet.
+    if (!columns.includes('department_id') && (department || departmentIds)) return []
 
-    const { data, error } = await buildUserQuery(columns, { role, status, search, view })
+    const { data, error } = await buildUserQuery(columns, {
+      role,
+      status,
+      search,
+      view,
+      department,
+      departmentIds,
+    })
 
     if (!error) {
       const rows = (data ?? []).map((row) => ({ ...USER_ROW_DEFAULTS, ...row }))
@@ -61,7 +86,10 @@ export async function loadUsers({
   throw new Error(lastError.message)
 }
 
-function buildUserQuery(columns, { role, status, search, view }) {
+function buildUserQuery(
+  columns,
+  { role, status, search, view, department, departmentIds },
+) {
   let query = supabase.from('profiles').select(columns)
 
   if (columns.includes('removed_at')) {
@@ -73,6 +101,13 @@ function buildUserQuery(columns, { role, status, search, view }) {
 
   if (role) query = query.eq('role', role)
   if (status) query = query.eq('status', status)
+
+  // A chosen department is narrower than the stream it belongs to, so it wins.
+  if (columns.includes('department_id')) {
+    if (department === NO_DEPARTMENT) query = query.is('department_id', null)
+    else if (department) query = query.eq('department_id', department)
+    else if (Array.isArray(departmentIds)) query = query.in('department_id', departmentIds)
+  }
 
   const term = search.trim()
   if (term) {
@@ -112,10 +147,14 @@ export async function loadExistingIdentifiers() {
 const emailsOf = (rows) => (rows ?? []).map((row) => row.email.toLowerCase())
 
 /**
- * FR-20: edit name, role, or SAP ID. The email address stays immutable because
- * it is what identifies the account to Auth.
+ * FR-20: edit name, role, SAP ID, or department. The email address stays
+ * immutable because it is what identifies the account to Auth.
+ *
+ * The role travels alongside the department so the student-and-faculty
+ * requirement (FR-46) can be re-checked here as well as in the form — the edit
+ * panel changes both in one submit, so it always has both to give.
  */
-export async function updateUser(userId, { full_name, role, sap_id }) {
+export async function updateUser(userId, { full_name, role, sap_id, department_id }) {
   const patch = {}
   if (full_name !== undefined) patch.full_name = full_name.trim() || null
   if (role !== undefined) patch.role = role
@@ -124,6 +163,13 @@ export async function updateUser(userId, { full_name, role, sap_id }) {
     if (!check.ok) throw new Error(check.reason)
     // null clears it: a SAP ID can be removed as well as changed.
     patch.sap_id = check.value
+  }
+  if (department_id !== undefined) {
+    const value = department_id || null
+    if (!value && departmentRequiredFor(role)) {
+      throw new Error('Students and faculty must be assigned a department.')
+    }
+    patch.department_id = value
   }
 
   if (Object.keys(patch).length === 0) return
@@ -221,7 +267,7 @@ export async function createUsers(users, onProgress = () => {}) {
 
 function isMissingProfileColumn(message = '') {
   return (
-    /(sap_id|must_change_password|removed_at|removed_by)/i.test(message) &&
+    /(sap_id|department_id|must_change_password|removed_at|removed_by)/i.test(message) &&
     /(does not exist|could not find|schema cache)/i.test(message)
   )
 }
@@ -231,6 +277,9 @@ function translateUserError(error) {
   if (/sap_id/i.test(message) && isMissingProfileColumn(message)) {
     return 'SAP IDs need the database migration applied first: supabase/migrations/0007_sap_id.sql.'
   }
+  if (/department_id/i.test(message) && isMissingProfileColumn(message)) {
+    return 'Departments need the database migration applied first: supabase/migrations/0008_departments.sql.'
+  }
   if (isMissingProfileColumn(message)) {
     return 'The user-management database migration is not applied yet. Apply supabase/migrations/0006_direct_users.sql.'
   }
@@ -239,6 +288,14 @@ function translateUserError(error) {
   }
   if (/profiles_sap_id_format/i.test(message)) {
     return `Invalid SAP ID. Use ${SAP_ID_HINT}.`
+  }
+  // The department was archived and deleted in another tab between the picker
+  // loading and this save.
+  if (/profiles_department_id_fkey/i.test(message) || error.code === '23503') {
+    return 'That department no longer exists. Reload the page and pick again.'
+  }
+  if (/Only an administrator can change a department/i.test(message)) {
+    return 'Only an administrator can change a department.'
   }
   if (/row-level security/i.test(message) || error.code === '42501') {
     return 'You do not have permission for that change.'

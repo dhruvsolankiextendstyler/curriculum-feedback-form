@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AdminNav from '../components/AdminNav'
 import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
@@ -7,39 +7,98 @@ import { SAP_ID_HINT } from '../lib/identifier'
 import {
   createUsers,
   loadUsers,
+  NO_DEPARTMENT,
   removeUser,
   restoreUser,
   setUserStatus,
   updateUser,
 } from '../lib/admin/users'
+import {
+  departmentRequiredFor,
+  describeDepartment,
+  loadDepartmentTree,
+} from '../lib/admin/departments'
 
 const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
-/** FR-19 to FR-23: direct creation, editing, filtering and soft removal. */
+const EMPTY_TREE = { streams: [], departments: [] }
+
+/** FR-19 to FR-23, FR-46: direct creation, editing, filtering and soft removal. */
 export default function AdminUsers() {
   const { user: currentUser } = useAuth()
   const [filters, setFilters] = useState({
     view: 'current',
     role: '',
     status: '',
+    streamId: '',
+    departmentId: '',
     search: '',
     sort: 'recent',
   })
   const [users, setUsers] = useState([])
+  const [tree, setTree] = useState(EMPTY_TREE)
   const [state, setState] = useState({ loading: true, error: null })
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)
   const [showImport, setShowImport] = useState(false)
 
+  // Loaded once and shared by the filters, the table, the edit panel and the
+  // add-user form. A failure here is swallowed on purpose: before migration 0008
+  // there is no department to show, and the rest of this page still works.
+  useEffect(() => {
+    let active = true
+    loadDepartmentTree()
+      .then((data) => active && setTree(data))
+      .catch(() => active && setTree(EMPTY_TREE))
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const departmentById = useMemo(
+    () => new Map(tree.departments.map((row) => [row.id, row])),
+    [tree.departments],
+  )
+  const streamById = useMemo(
+    () => new Map(tree.streams.map((row) => [row.id, row])),
+    [tree.streams],
+  )
+  const hasDepartments = tree.streams.length > 0
+
+  /** A stream filter is the set of its departments; null means "no stream chosen". */
+  const departmentIdsForStream = useMemo(
+    () =>
+      filters.streamId
+        ? tree.departments
+            .filter((row) => row.stream_id === filters.streamId)
+            .map((row) => row.id)
+        : null,
+    [tree.departments, filters.streamId],
+  )
+
+  const departmentOptions = useMemo(
+    () =>
+      filters.streamId
+        ? tree.departments.filter((row) => row.stream_id === filters.streamId)
+        : tree.departments,
+    [tree.departments, filters.streamId],
+  )
+
   const refresh = useCallback(async () => {
     setState({ loading: true, error: null })
     try {
-      setUsers(await loadUsers(filters))
+      setUsers(
+        await loadUsers({
+          ...filters,
+          department: filters.departmentId,
+          departmentIds: departmentIdsForStream,
+        }),
+      )
       setState({ loading: false, error: null })
     } catch (err) {
       setState({ loading: false, error: err.message })
     }
-  }, [filters])
+  }, [filters, departmentIdsForStream])
 
   useEffect(() => {
     refresh()
@@ -93,6 +152,9 @@ export default function AdminUsers() {
         full_name: editing.full_name ?? '',
         sap_id: editing.sap_id ?? '',
         role: editing.role,
+        // Omitted entirely when the column is not there yet, rather than sent as
+        // null and rejected by the schema cache.
+        ...(hasDepartments ? { department_id: editing.department_id ?? '' } : {}),
       })
       setNotice(`Saved changes to ${editing.email}.`)
       setEditing(null)
@@ -100,6 +162,14 @@ export default function AdminUsers() {
     } catch (err) {
       setState((current) => ({ ...current, error: err.message }))
     }
+  }
+
+  /** Opens the edit panel, deriving the stream from the department it holds. */
+  function startEditing(user) {
+    setEditing({
+      ...user,
+      stream_id: departmentById.get(user.department_id)?.stream_id ?? '',
+    })
   }
 
   const removedView = filters.view === 'removed'
@@ -137,6 +207,7 @@ export default function AdminUsers() {
               setState((current) => ({ ...current, error: message }))
             }
             create={createUsers}
+            tree={tree}
           />
         )}
       </div>
@@ -187,6 +258,54 @@ export default function AdminUsers() {
             <option value="inactive">Inactive</option>
           </select>
         </div>
+        {hasDepartments && (
+          <>
+            <div>
+              <label htmlFor="filter-stream">Stream</label>
+              <select
+                id="filter-stream"
+                value={filters.streamId}
+                onChange={(event) =>
+                  // Narrowing the stream can orphan the chosen department, so it
+                  // is cleared rather than left filtering to nothing.
+                  setFilters((current) => ({
+                    ...current,
+                    streamId: event.target.value,
+                    departmentId: '',
+                  }))
+                }
+              >
+                <option value="">All streams</option>
+                {tree.streams.map((stream) => (
+                  <option key={stream.id} value={stream.id}>
+                    {stream.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="filter-department">Department</label>
+              <select
+                id="filter-department"
+                value={filters.departmentId}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    departmentId: event.target.value,
+                  }))
+                }
+              >
+                <option value="">All departments</option>
+                <option value={NO_DEPARTMENT}>Not assigned</option>
+                {departmentOptions.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {describeDepartment(department)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
         <div>
           <label htmlFor="filter-sort">Sort</label>
           <select
@@ -235,6 +354,7 @@ export default function AdminUsers() {
                   <th scope="col">Email</th>
                   <th scope="col">SAP ID</th>
                   <th scope="col">Role</th>
+                  {hasDepartments && <th scope="col">Department</th>}
                   <th scope="col">Status</th>
                   <th scope="col">{removedView ? 'Removed' : 'Added'}</th>
                   <th scope="col">
@@ -252,6 +372,14 @@ export default function AdminUsers() {
                     <td>{user.email}</td>
                     <td>{user.sap_id || <span className="muted">-</span>}</td>
                     <td>{ROLE_LABELS[user.role] ?? user.role}</td>
+                    {hasDepartments && (
+                      <td>
+                        <DepartmentCell
+                          department={departmentById.get(user.department_id)}
+                          streamById={streamById}
+                        />
+                      </td>
+                    )}
                     <td>
                       {removedView ? (
                         <span className="pill removed">Removed</span>
@@ -283,7 +411,7 @@ export default function AdminUsers() {
                           <button
                             type="button"
                             className="secondary"
-                            onClick={() => setEditing({ ...user })}
+                            onClick={() => startEditing(user)}
                           >
                             Edit
                           </button>
@@ -364,6 +492,70 @@ export default function AdminUsers() {
               ))}
             </select>
 
+            {hasDepartments && (
+              <>
+                <label htmlFor="edit-stream">
+                  Stream{departmentRequiredFor(editing.role) ? '' : ' (optional)'}
+                </label>
+                <select
+                  id="edit-stream"
+                  required={departmentRequiredFor(editing.role)}
+                  value={editing.stream_id ?? ''}
+                  onChange={(event) =>
+                    setEditing((current) => ({
+                      ...current,
+                      stream_id: event.target.value,
+                      department_id: '',
+                    }))
+                  }
+                >
+                  <option value="">No stream</option>
+                  {tree.streams.map((stream) => (
+                    <option key={stream.id} value={stream.id}>
+                      {stream.name}
+                      {stream.is_active ? '' : ' (archived)'}
+                    </option>
+                  ))}
+                </select>
+
+                <label htmlFor="edit-department">
+                  Department{departmentRequiredFor(editing.role) ? '' : ' (optional)'}
+                </label>
+                <select
+                  id="edit-department"
+                  required={departmentRequiredFor(editing.role)}
+                  disabled={!editing.stream_id}
+                  aria-describedby="edit-department-hint"
+                  value={editing.department_id ?? ''}
+                  onChange={(event) =>
+                    setEditing((current) => ({
+                      ...current,
+                      department_id: event.target.value,
+                    }))
+                  }
+                >
+                  <option value="">
+                    {editing.stream_id ? 'Not assigned' : 'Choose a stream first'}
+                  </option>
+                  {tree.departments
+                    .filter((row) => row.stream_id === editing.stream_id)
+                    .map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {describeDepartment(department)}
+                        {department.is_active ? '' : ' (archived)'}
+                      </option>
+                    ))}
+                </select>
+                <p className="field-hint" id="edit-department-hint">
+                  {departmentRequiredFor(editing.role)
+                    ? 'Required for this role.'
+                    : 'Optional for this role.'}{' '}
+                  Changing it does not move feedback this person has already
+                  submitted — a response keeps the department it was given under.
+                </p>
+              </>
+            )}
+
             <div className="button-row">
               <button type="submit">Save changes</button>
               <button type="button" className="secondary" onClick={() => setEditing(null)}>
@@ -374,6 +566,19 @@ export default function AdminUsers() {
         </div>
       )}
     </section>
+  )
+}
+
+function DepartmentCell({ department, streamById }) {
+  if (!department) return <span className="muted">-</span>
+
+  const stream = streamById.get(department.stream_id)
+  return (
+    <>
+      {describeDepartment(department)}
+      {!department.is_active && <span className="muted-pill">archived</span>}
+      {stream && <span className="muted small account-note">{stream.name}</span>}
+    </>
   )
 }
 

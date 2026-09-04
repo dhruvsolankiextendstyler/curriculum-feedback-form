@@ -13,13 +13,22 @@ import { assertDenominators } from './scales'
  * SQL defaults, so one filter object drives every panel identically.
  */
 
-/** @typedef {{cycleId?: string|null, stakeholder?: string|null, program?: string|null, courseKey?: string|null}} Filters */
+/** @typedef {{cycleId?: string|null, stakeholder?: string|null, program?: string|null, courseKey?: string|null, streamId?: string|null, departmentId?: string|null}} Filters */
 
-const params = ({ cycleId = null, stakeholder = null, program = null, courseKey = null } = {}) => ({
+const params = ({
+  cycleId = null,
+  stakeholder = null,
+  program = null,
+  courseKey = null,
+  streamId = null,
+  departmentId = null,
+} = {}) => ({
   p_cycle_id: cycleId || null,
   p_stakeholder: stakeholder || null,
   p_program: program || null,
   p_course_key: courseKey || null,
+  p_stream_id: streamId || null,
+  p_department_id: departmentId || null,
 })
 
 async function call(fn, args) {
@@ -31,9 +40,11 @@ async function call(fn, args) {
 /**
  * Turns a PostgREST failure into something an admin can act on.
  *
- * 42501 is the analytics guard firing, and 42883/PGRST202 means the migration
- * has not been applied — by far the most likely state for a teammate who has
- * just pulled.
+ * 42501 is the analytics guard firing. 42883/PGRST202 means the signature this
+ * build calls does not exist on the database — by far the most likely state for a
+ * teammate who has just pulled, and since 0008 widened every one of these
+ * functions with the stream and department filters, either migration can be the
+ * one that is missing.
  */
 function describeRpcError(error, fn) {
   const code = error.code ?? ''
@@ -43,7 +54,7 @@ function describeRpcError(error, fn) {
     return 'Admin access is required to view analytics.'
   }
   if (code === '42883' || code === 'PGRST202' || /could not find the function/i.test(message)) {
-    return `The analytics functions are not installed on this database. Run supabase/migrations/0005_analytics.sql, then reload. (missing: ${fn})`
+    return `The analytics functions on this database do not match this build. Run supabase/migrations/0005_analytics.sql and 0008_departments.sql, then reload. (missing: ${fn})`
   }
   return message
 }
@@ -70,11 +81,19 @@ export const loadChoiceDistribution = (filters) =>
   call('analytics_choice_distribution', params(filters))
 
 /** FR-39: per-cycle series for repeated questions. Cycle is the axis, not a filter. */
-export const loadTrends = ({ stakeholder = null, program = null, courseKey = null } = {}) =>
+export const loadTrends = ({
+  stakeholder = null,
+  program = null,
+  courseKey = null,
+  streamId = null,
+  departmentId = null,
+} = {}) =>
   call('analytics_trends', {
     p_stakeholder: stakeholder || null,
     p_program: program || null,
     p_course_key: courseKey || null,
+    p_stream_id: streamId || null,
+    p_department_id: departmentId || null,
   })
 
 /** FR-40: long_text answers only — see the SQL for why that matters. */

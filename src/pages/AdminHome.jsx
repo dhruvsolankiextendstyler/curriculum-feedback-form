@@ -17,11 +17,12 @@ export default function AdminHome() {
       const countOf = (table) =>
         supabase.from(table).select('id', { count: 'exact', head: true })
 
-      const [users, forms, questions, responses, cycle] = await Promise.all([
+      const [users, forms, questions, responses, departments, cycle] = await Promise.all([
         countOf('profiles'),
         countOf('forms'),
         countOf('questions'),
         countOf('responses'),
+        countOf('departments'),
         supabase
           .from('academic_cycles')
           .select('label, closes_at')
@@ -31,6 +32,9 @@ export default function AdminHome() {
 
       if (!active) return
 
+      // A departments failure is deliberately NOT fatal: the table arrives with
+      // migration 0008, and a dashboard that refuses to load is a poor way to
+      // report a pending migration. The tile is left out instead.
       const error =
         users.error || forms.error || questions.error || responses.error || cycle.error
       if (error) {
@@ -46,6 +50,7 @@ export default function AdminHome() {
           forms: forms.count ?? 0,
           questions: questions.count ?? 0,
           responses: responses.count ?? 0,
+          departments: departments.error ? null : departments.count ?? 0,
           cycle: cycle.data,
         },
       })
@@ -67,7 +72,7 @@ export default function AdminHome() {
     )
   }
 
-  const { users, forms, questions, responses, cycle } = state.counts
+  const { users, forms, questions, responses, departments, cycle } = state.counts
 
   return (
     <section>
@@ -86,6 +91,12 @@ export default function AdminHome() {
           <span className="stat-value">{users}</span>
           <span className="stat-label">Users</span>
         </div>
+        {departments !== null && (
+          <div className="stat">
+            <span className="stat-value">{departments}</span>
+            <span className="stat-label">Departments</span>
+          </div>
+        )}
         <div className="stat">
           <span className="stat-value">{forms}</span>
           <span className="stat-label">Forms</span>

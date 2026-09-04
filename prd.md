@@ -118,10 +118,10 @@ See §1.3.
 - **FR-18** (Optional) Save draft / resume — *nice-to-have*.
 
 ### 5.3 Admin Panel — User Management
-- **FR-19** Admin can register a new user: email, name, stakeholder type (role), and an optional SAP ID.
-- **FR-20** Admin can edit a user's details/role, including adding, changing or removing their SAP ID. Only an admin can set a SAP ID.
+- **FR-19** Admin can register a new user: email, name, stakeholder type (role), an optional SAP ID, and a stream + department (required for students and faculty — see FR-46).
+- **FR-20** Admin can edit a user's details/role, including adding, changing or removing their SAP ID and their department. Only an admin can set either.
 - **FR-21** Admin can remove/deactivate a user.
-- **FR-22** Admin can view a list of all users with filters (by type, status) and search by name, email or SAP ID.
+- **FR-22** Admin can view a list of all users with filters (by type, status, stream, department, or no department assigned) and search by name, email or SAP ID.
 - **FR-23** **Bulk import users via CSV** (required, not optional — see scale in §4). Import shows a preview, validates rows, reports per-row errors, and skips duplicates. The optional `sap_id` column is validated for shape and for collisions inside the file and against existing accounts.
 - **FR-24** New accounts receive a unique temporary password and must replace it on first sign-in. Invite status is not stored.
 
@@ -142,13 +142,22 @@ See §1.3.
 ### 5.5 Admin Panel — Analytics & Reports
 - **FR-35** Dashboard shows total responses, responses by type, responses by program/course, per academic year.
 - **FR-36** Average rating per question, visualized (bar/pie charts).
-- **FR-37** Filter analytics by stakeholder type, program, course, and academic year.
+- **FR-37** Filter analytics by stakeholder type, stream, department, program, course, and academic year.
 - **FR-38** Distribution view per question (how many chose each Likert option).
 - **FR-39** Year-over-year comparison for repeated questions. When a question has multiple versions (due to edits), the trend line clearly marks version boundaries.
 - **FR-40** Sentiment analysis on text/recommendation answers (positive / neutral / negative) — free method.
 - **FR-41** Auto-generated insights (e.g. "lowest-rated aspect: X", "most requested addition: Y") — rule-based.
 - **FR-42** Export raw responses to **CSV**. Export includes question version metadata so historical rewording is visible in the data.
 - **FR-43** Export a summary **report** (PDF) per academic year — *nice-to-have if time permits*.
+
+### 5.6 Admin Panel — Streams & Departments
+- **FR-44** Admin can manage **streams** (e.g. Science, Commerce, Arts): add, rename, archive, restore, and delete an unused one.
+- **FR-45** Admin can manage the **departments** inside a stream (e.g. Computer Science, Accounting & Finance), each with an optional short code, and can move one between streams. Names and codes are unique **within a stream**, not globally — Psychology is genuinely both a Science and an Arts department.
+- **FR-46** A user account may be assigned a department. **Required for students and faculty**, optional for admins, academic peers, employers and alumni, who sit outside the college structure. Only an admin can set it.
+- **FR-47** Bulk import accepts optional `stream` and `department` columns. A department may be named or given by its short code; `stream` is only needed to disambiguate a name that exists in two streams. Rows naming an unknown, mismatched or archived department are reported and skipped.
+- **FR-48** Admin can view all departments with filters (stream, status) and search by name or code, alongside the number of accounts and responses attached to each. Archiving keeps a department out of the pickers while its people and its history remain; deleting is refused by the database while anything still references it.
+  - **Departments are recorded on a response at submission time**, never joined from the person afterwards, so a later transfer cannot rewrite a past cycle's totals. Responses that predate an assignment carry none.
+  - Departments are **not** included in the CSV export: the export already excludes the faculty form's `department` answer as identifying data (NFR-4).
 
 ---
 

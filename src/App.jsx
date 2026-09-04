@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuth } from './context/AuthContext'
 import AdminCycles from './pages/AdminCycles'
+import AdminDepartments from './pages/AdminDepartments'
 import AdminHome from './pages/AdminHome'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminUsers from './pages/AdminUsers'
@@ -97,6 +98,16 @@ export default function App() {
           <ProtectedRoute requireAdmin>
             <Layout>
               <AdminUsers />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/departments"
+        element={
+          <ProtectedRoute requireAdmin>
+            <Layout>
+              <AdminDepartments />
             </Layout>
           </ProtectedRoute>
         }

@@ -976,3 +976,32 @@ li.question-row {
 .diff .now {
   background: #eaf6f0;
 }
+
+/* ---------- departments: the add-a-value box under a picker ---------- */
+/* Inputs are width:100% globally, which would wrap each one onto its own line
+   inside a flex row. These are sized by flex instead. */
+.add-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.add-inline input {
+  flex: 1;
+  width: auto;
+  min-width: 120px;
+}
+
+.add-inline input.code {
+  flex: 0 0 5.5rem;
+  min-width: 0;
+  text-transform: uppercase;
+}
+
+.add-inline button {
+  margin-top: 0;
+  white-space: nowrap;
+}
+

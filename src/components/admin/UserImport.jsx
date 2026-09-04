@@ -1,14 +1,25 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Papa from 'papaparse'
 import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../../lib/constants'
 import { SAP_ID_HINT, validateSapId } from '../../lib/identifier'
 import { CSV_TEMPLATE, validateCsvRows } from '../../lib/admin/csv'
 import { loadExistingIdentifiers } from '../../lib/admin/users'
+import { departmentRequiredFor, describeDepartment } from '../../lib/admin/departmentRules'
 
 const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
-/** Adds one user or a validated CSV batch without sending email invitations. */
-export default function UserImport({ create, onDone, onError }) {
+const EMPTY_TREE = { streams: [], departments: [] }
+
+/**
+ * Adds one user or a validated CSV batch without sending email invitations.
+ *
+ * `tree` is the stream/department list the parent already holds for its filters.
+ * Passing it down rather than fetching it again keeps one source of truth for
+ * what an admin may pick, and lets the CSV importer resolve names to ids without
+ * a round trip per row (FR-47).
+ */
+export default function UserImport({ create, onDone, onError, tree = EMPTY_TREE }) {
   const [mode, setMode] = useState('single')
 
   return (
@@ -35,9 +46,9 @@ export default function UserImport({ create, onDone, onError }) {
       </div>
 
       {mode === 'single' ? (
-        <SingleUser create={create} onDone={onDone} onError={onError} />
+        <SingleUser create={create} onDone={onDone} onError={onError} tree={tree} />
       ) : (
-        <CsvUsers create={create} onDone={onDone} onError={onError} />
+        <CsvUsers create={create} onDone={onDone} onError={onError} tree={tree} />
       )}
     </div>
   )
@@ -48,13 +59,30 @@ const EMPTY_USER = {
   full_name: '',
   sap_id: '',
   role: ROLES.STUDENT,
+  stream_id: '',
+  department_id: '',
   temporary_password: '',
 }
 
-function SingleUser({ create, onDone, onError }) {
+function SingleUser({ create, onDone, onError, tree }) {
   const [form, setForm] = useState(EMPTY_USER)
   const [credential, setCredential] = useState(null)
   const [busy, setBusy] = useState(false)
+
+  // Only what an admin may actually assign: an archived stream or department has
+  // been taken out of use, and adding a new person to it would defeat that.
+  const streams = useMemo(
+    () => (tree.streams ?? []).filter((row) => row.is_active),
+    [tree.streams],
+  )
+  const departments = useMemo(
+    () =>
+      (tree.departments ?? []).filter(
+        (row) => row.is_active && row.stream_id === form.stream_id,
+      ),
+    [tree.departments, form.stream_id],
+  )
+  const departmentRequired = departmentRequiredFor(form.role)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -65,11 +93,24 @@ function SingleUser({ create, onDone, onError }) {
       onError(sapCheck.reason)
       return
     }
+    if (departmentRequired && !form.department_id) {
+      onError(`${ROLE_LABELS[form.role]} accounts need a stream and a department.`)
+      return
+    }
 
     setBusy(true)
     setCredential(null)
     try {
-      const result = await create([{ ...form, sap_id: sapCheck.value ?? '' }])
+      const result = await create([
+        {
+          email: form.email,
+          full_name: form.full_name,
+          sap_id: sapCheck.value ?? '',
+          role: form.role,
+          department_id: form.department_id || null,
+          temporary_password: form.temporary_password,
+        },
+      ])
       const outcome = result.results?.[0]
       if (outcome?.status === 'created') {
         setCredential({
@@ -144,6 +185,68 @@ function SingleUser({ create, onDone, onError }) {
         ))}
       </select>
 
+      <label htmlFor="create-stream">
+        Stream{departmentRequired ? '' : ' (optional)'}
+      </label>
+      <select
+        id="create-stream"
+        required={departmentRequired}
+        value={form.stream_id}
+        onChange={(event) =>
+          // The department list is scoped to the stream, so a stream change
+          // invalidates whatever was picked under the previous one.
+          setForm((current) => ({
+            ...current,
+            stream_id: event.target.value,
+            department_id: '',
+          }))
+        }
+      >
+        <option value="">No stream</option>
+        {streams.map((stream) => (
+          <option key={stream.id} value={stream.id}>
+            {stream.name}
+          </option>
+        ))}
+      </select>
+
+      <label htmlFor="create-department">
+        Department{departmentRequired ? '' : ' (optional)'}
+      </label>
+      <select
+        id="create-department"
+        required={departmentRequired}
+        disabled={!form.stream_id}
+        aria-describedby="create-department-hint"
+        value={form.department_id}
+        onChange={(event) =>
+          setForm((current) => ({ ...current, department_id: event.target.value }))
+        }
+      >
+        <option value="">
+          {!form.stream_id
+            ? 'Choose a stream first'
+            : departments.length === 0
+              ? 'No departments in this stream'
+              : 'Choose a department'}
+        </option>
+        {departments.map((department) => (
+          <option key={department.id} value={department.id}>
+            {describeDepartment(department)}
+          </option>
+        ))}
+      </select>
+      <p className="field-hint" id="create-department-hint">
+        {departmentRequired
+          ? `${ROLE_LABELS[form.role]} accounts must belong to a department — it is what the analytics filters group them by.`
+          : 'Optional for this role. Employers, alumni and academic peers are outside the college structure.'}{' '}
+        {streams.length === 0 && (
+          <>
+            No streams exist yet — <Link to="/admin/departments">add them first</Link>.
+          </>
+        )}
+      </p>
+
       <label htmlFor="create-password">Temporary password</label>
       <input
         id="create-password"
@@ -181,12 +284,17 @@ function SingleUser({ create, onDone, onError }) {
   )
 }
 
-function CsvUsers({ create, onDone, onError }) {
+function CsvUsers({ create, onDone, onError, tree }) {
   const fileRef = useRef(null)
   const [preview, setPreview] = useState(null)
   const [credentials, setCredentials] = useState([])
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(null)
+
+  const departmentName = useMemo(() => {
+    const byId = new Map((tree.departments ?? []).map((row) => [row.id, row]))
+    return (id) => (id ? describeDepartment(byId.get(id)) : '')
+  }, [tree.departments])
 
   async function handleFile(event) {
     const file = event.target.files?.[0]
@@ -201,7 +309,7 @@ function CsvUsers({ create, onDone, onError }) {
       complete: async (parsed) => {
         try {
           const existing = await loadExistingIdentifiers()
-          const result = validateCsvRows(parsed.data, existing)
+          const result = validateCsvRows(parsed.data, existing, tree)
           if (result.headerError) {
             onError(result.headerError)
             return
@@ -270,7 +378,13 @@ function CsvUsers({ create, onDone, onError }) {
     <div>
       <p className="muted">
         Columns: <code>email</code>, <code>full_name</code>, <code>role</code>, and
-        optional <code>sap_id</code> and <code>temporary_password</code>.
+        optional <code>sap_id</code>, <code>stream</code>, <code>department</code> and{' '}
+        <code>temporary_password</code>.
+      </p>
+      <p className="muted small">
+        A department may be given by name or by its short code, and{' '}
+        <code>stream</code> is only needed to tell apart a name that exists in two
+        streams. Student and faculty rows without one are skipped.
       </p>
 
       <div className="button-row">
@@ -329,6 +443,7 @@ function CsvUsers({ create, onDone, onError }) {
                     {row.email} - {ROLE_LABELS[row.role]}
                     {row.full_name ? ` (${row.full_name})` : ''}
                     {row.sap_id ? ` - SAP ID ${row.sap_id}` : ''}
+                    {row.department_id ? ` - ${departmentName(row.department_id)}` : ''}
                   </li>
                 ))}
               </ul>

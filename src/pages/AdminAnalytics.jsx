@@ -11,6 +11,7 @@ import { formatAvg, formatNormalised, spansVersions, versionNote } from '../lib/
 import { createClassifier } from '../lib/analytics/sentiment'
 import { buildInsights } from '../lib/analytics/insights'
 import { BOM, buildCsv, fileName } from '../lib/analytics/csv'
+import { describeDepartment } from '../lib/admin/departmentRules'
 import { ROLE_LABELS } from '../lib/constants'
 
 /**
@@ -26,8 +27,9 @@ import { ROLE_LABELS } from '../lib/constants'
  *
  * A caveat is attached to any number that could be misread: the faculty 4-point
  * scale, the non-scoring options excluded from averages, questions whose
- * answers span reworded variants, and the program filter being meaningful only
- * for students.
+ * answers span reworded variants, the program filter being meaningful only
+ * for students, and the department filter reaching only as far back as the
+ * responses that were stamped with one.
  */
 
 const TABS = [
@@ -38,7 +40,14 @@ const TABS = [
   { id: 'export', label: 'Export' },
 ]
 
-const EMPTY_FILTERS = { cycleId: '', stakeholder: '', program: '', courseKey: '' }
+const EMPTY_FILTERS = {
+  cycleId: '',
+  stakeholder: '',
+  streamId: '',
+  departmentId: '',
+  program: '',
+  courseKey: '',
+}
 
 export default function Analytics() {
   const [tab, setTab] = useState('overview')
@@ -58,6 +67,12 @@ export default function Analytics() {
 
   const setFilter = (key) => (event) =>
     setFilters((current) => ({ ...current, [key]: event.target.value }))
+
+  // A department belongs to exactly one stream, so narrowing the stream can leave
+  // a department selected that the list no longer offers.
+  const departmentOptions = (options?.departments ?? []).filter(
+    (department) => !filters.streamId || department.streamId === filters.streamId,
+  )
 
   const hasFilters = Object.values(filters).some(Boolean)
 
@@ -98,6 +113,44 @@ export default function Analytics() {
             </select>
           </div>
           <div>
+            <label htmlFor="f-stream">Stream</label>
+            <select
+              id="f-stream"
+              value={filters.streamId}
+              onChange={(event) =>
+                setFilters((current) => ({
+                  ...current,
+                  streamId: event.target.value,
+                  departmentId: '',
+                }))
+              }
+            >
+              <option value="">All streams</option>
+              {(options?.streams ?? []).map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.isActive ? '' : ' (archived)'}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="f-department">Department</label>
+            <select
+              id="f-department"
+              value={filters.departmentId}
+              onChange={setFilter('departmentId')}
+            >
+              <option value="">All departments</option>
+              {departmentOptions.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {describeDepartment(d)}
+                  {d.isActive ? '' : ' (archived)'}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label htmlFor="f-program">Program</label>
             <select id="f-program" value={filters.program} onChange={setFilter('program')}>
               <option value="">All programs</option>
@@ -124,7 +177,15 @@ export default function Analytics() {
         {filters.program && (
           <p className="muted small">
             Only the student form asks for a program, so this filter hides every
-            other stakeholder's responses.
+            other stakeholder&rsquo;s responses.
+          </p>
+        )}
+        {(filters.streamId || filters.departmentId) && (
+          <p className="muted small">
+            A response records the department its author belonged to at the moment
+            they submitted it, so that a later transfer cannot rewrite a past year.
+            Feedback given before a department was assigned carries none, and this
+            filter leaves it out.
           </p>
         )}
       </div>
@@ -226,6 +287,21 @@ function OverviewTab({ filters }) {
             nameOf={(r) => ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType}
             countOf={(r) => r.responseCount}
             extra={(r) => `${r.respondentCount} ${r.respondentCount === 1 ? 'person' : 'people'}`}
+          />
+          <Breakdown
+            title="By stream"
+            rows={totals.byStream}
+            nameOf={(r) => r.stream}
+            countOf={(r) => r.responseCount}
+            empty="No responses carry a department yet."
+          />
+          <Breakdown
+            title="By department"
+            rows={totals.byDepartment}
+            nameOf={(r) => describeDepartment({ name: r.department, code: r.code })}
+            countOf={(r) => r.responseCount}
+            extra={(r) => r.stream}
+            empty="No responses carry a department yet. It is recorded when feedback is submitted, so responses that predate the assignment have none."
           />
           <Breakdown
             title="By program"
@@ -410,8 +486,20 @@ function RatingsTab({ filters }) {
 /** FR-39. Cycle is the axis here, so the year filter does not apply. */
 function TrendsTab({ filters }) {
   const trendFilters = useMemo(
-    () => ({ stakeholder: filters.stakeholder, program: filters.program, courseKey: filters.courseKey }),
-    [filters.stakeholder, filters.program, filters.courseKey],
+    () => ({
+      stakeholder: filters.stakeholder,
+      program: filters.program,
+      courseKey: filters.courseKey,
+      streamId: filters.streamId,
+      departmentId: filters.departmentId,
+    }),
+    [
+      filters.stakeholder,
+      filters.program,
+      filters.courseKey,
+      filters.streamId,
+      filters.departmentId,
+    ],
   )
   const state = useAnalytics(loadTrends, trendFilters)
 
