@@ -80,12 +80,15 @@ export default function App() {
         }
       />
 
-      {/* Admin panel (FR-5). Every branch is gated by requireAdmin, and every
-          table it touches is additionally protected by RLS. */}
+      {/* Admin panel (FR-5). Every branch admits staff — an administrator or a
+          head of department — except Departments, which stays admin-only because
+          an HOD may not create one. Every table is additionally protected by RLS,
+          and an HOD's reach inside these pages is narrowed there rather than
+          here (0011_hod_scope.sql). */}
       <Route
         path="/admin"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireStaff>
             <Layout>
               <AdminHome />
             </Layout>
@@ -95,7 +98,7 @@ export default function App() {
       <Route
         path="/admin/users"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireStaff>
             <Layout>
               <AdminUsers />
             </Layout>
@@ -115,7 +118,7 @@ export default function App() {
       <Route
         path="/admin/questions"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireStaff>
             <Layout>
               <AdminQuestions />
             </Layout>
@@ -125,7 +128,7 @@ export default function App() {
       <Route
         path="/admin/cycles"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireStaff>
             <Layout>
               <AdminCycles />
             </Layout>
@@ -136,7 +139,7 @@ export default function App() {
       <Route
         path="/admin/analytics"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireStaff>
             <Layout>
               <Suspense fallback={<p className="muted">Loading analytics…</p>}>
                 <AdminAnalytics />

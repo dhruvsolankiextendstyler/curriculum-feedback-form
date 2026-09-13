@@ -1005,3 +1005,54 @@ li.question-row {
   white-space: nowrap;
 }
 
+/* ---------- narrow viewports (NFR-6, NFR-7) ---------- */
+/*
+ * At 390px the DOCUMENT must not pan sideways. The top bar holds Sign out, and
+ * it slides off screen entirely once anything forces the page wider than the
+ * viewport — which it did on four of the six admin pages.
+ *
+ * Two causes rather than one element per page:
+ *
+ *  1. An overflow container inside a flex or grid item cannot shrink. A flex
+ *     item's min-width defaults to `auto`, i.e. its content's min-content
+ *     width — the whole table — so `.table-wrap` grew instead of scrolling.
+ *     `min-width: 0` restores the shrink and the table scrolls inside its own
+ *     box, which is what UI-51 already proved works when it is given the room.
+ *
+ *  2. The min-width floors that keep the filter controls usable side by side on
+ *     a desktop are wider than a phone, and they stop earning anything once
+ *     each control has a row to itself.
+ */
+.table-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .tab-row {
+    flex-wrap: wrap;
+  }
+
+  .filters > div,
+  .filters .grow {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  .question-main,
+  .add-inline input,
+  .add-inline input.code {
+    min-width: 0;
+  }
+
+  /* A secondary note gains nothing from nowrap, and it is the widest single
+     unbreakable string in several cells. */
+  .account-note {
+    white-space: normal;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+  }
+}

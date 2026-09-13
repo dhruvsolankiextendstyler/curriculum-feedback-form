@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { loadAuditTrail, loadVersionHistory } from '../../lib/admin/questions'
+import { loadQuestionHistory } from '../../lib/admin/questions'
 
 const ACTION_LABELS = {
   created: 'Created',
@@ -25,13 +25,10 @@ export default function QuestionHistory({ question, onClose }) {
     ;(async () => {
       setState({ loading: true, error: null })
       try {
-        const [v, a] = await Promise.all([
-          loadVersionHistory(question.id),
-          loadAuditTrail(question.id),
-        ])
+        const history = await loadQuestionHistory(question.id)
         if (!active) return
-        setVersions(v)
-        setAudit(a)
+        setVersions(history.versions)
+        setAudit(history.audit)
         setState({ loading: false, error: null })
       } catch (err) {
         if (active) setState({ loading: false, error: err.message })
@@ -76,6 +73,7 @@ export default function QuestionHistory({ question, onClose }) {
                       <span className="pill">current</span>
                     )}
                     <span className="muted small">{formatDate(v.created_at)}</span>
+                    <Actor actor={v.actor} />
                   </div>
                   <p>{v.text}</p>
                 </li>
@@ -94,6 +92,7 @@ export default function QuestionHistory({ question, onClose }) {
                     {ACTION_LABELS[entry.action] ?? entry.action}
                   </span>
                   <span className="muted small">{formatDate(entry.created_at)}</span>
+                  <Actor actor={entry.actor} />
                   {entry.details?.from && entry.details?.to && (
                     <div className="diff">
                       <p className="was">{entry.details.from}</p>
@@ -107,6 +106,24 @@ export default function QuestionHistory({ question, onClose }) {
         </>
       )}
     </div>
+  )
+}
+
+/**
+ * FR-33's "by whom".
+ *
+ * Renders nothing when the author is unknown rather than guessing. An HOD may
+ * only read profiles in their own department, so an administrator's edit
+ * resolves to no row for them — and "an administrator" printed there would be
+ * an inference presented as a fact.
+ */
+function Actor({ actor }) {
+  if (!actor?.name) return null
+  return (
+    <span className="muted small">
+      by {actor.name}
+      {actor.role === 'hod' && ' (head of department)'}
+    </span>
   )
 }
 

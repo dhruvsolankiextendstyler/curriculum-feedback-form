@@ -11,6 +11,10 @@ dist-ssr/
 .supabase/
 supabase/.temp/
 
+# Local agent tooling
+.codex/
+agent/
+
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json

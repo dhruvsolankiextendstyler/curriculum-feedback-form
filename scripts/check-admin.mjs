@@ -17,6 +17,7 @@ const {
   optionsChanged,
   cosmeticPatch,
   slugifyOptionValue,
+  storedOptionValue,
   deriveQuestionKey,
   validateQuestionDraft,
 } = await load('src/lib/admin/questionDiff.js')
@@ -164,6 +165,32 @@ check('caps at 60 chars with no trailing underscore', () => {
   assert.doesNotMatch(slug, /_$/)
 })
 
+console.log('\nstoredOptionValue')
+check('REGRESSION: a seeded option keeps its stored value across a version', () => {
+  // The seed wrote `value = label`, and 26 live answers hold those raw strings.
+  // Re-deriving the slug on the new version split one human choice into two
+  // chart rows and locked pre-edit respondents out of editing their own
+  // submission.
+  assert.equal(storedOptionValue({ label: 'PG I', value: 'PG I' }), 'PG I')
+  assert.equal(
+    storedOptionValue({ label: 'B.Com (Management & Finance)', value: 'B.Com (Management & Finance)' }),
+    'B.Com (Management & Finance)',
+  )
+})
+check('a brand-new option is slugified from its label', () =>
+  assert.equal(storedOptionValue({ label: 'PG I', value: '' }), 'pg_i'))
+check('a reworded label keeps the value the answers already hold', () =>
+  assert.equal(storedOptionValue({ label: 'Postgraduate I', value: 'PG I' }), 'PG I'))
+check('a whitespace-only value is treated as absent', () =>
+  assert.equal(storedOptionValue({ label: 'Yes', value: '   ' }), 'yes'))
+check('an unslugifiable new option still resolves to empty, not to undefined', () =>
+  assert.equal(storedOptionValue({ label: '???' }), ''))
+check('carrying the value forward is not itself read as an edit', () => {
+  const stored = { ...selectQ, options: [{ label: 'PG I', value: 'PG I' }] }
+  const draft = { ...selectQ, options: [{ label: 'PG I', value: 'PG I' }] }
+  assert.equal(requiresNewVersion(stored, draft), false)
+})
+
 console.log('\nderiveQuestionKey')
 check('derives from text', () =>
   assert.equal(deriveQuestionKey('Course design'), 'course_design'))
@@ -300,6 +327,34 @@ check('flags a bad email with its line number', () => {
   assert.equal(result.valid.length, 0)
   assert.equal(result.invalid[0].line, 2)
   assert.match(result.invalid[0].reason, /email/i)
+})
+check('REGRESSION: a blank line does not shift the lines after it', () => {
+  // Numbering the filtered array put the bad row on the line the good one
+  // occupies, and the drift is cumulative. Editing "Line 2" of a 400-row file
+  // then corrupts a good row and leaves the bad one in place (FR-23).
+  const result = validateCsvRows([
+    header,
+    ['', '', ''],
+    ['a@x.com', 'A', 'student'],
+    ['not-an-email', 'B', 'student'],
+  ])
+  assert.equal(result.valid[0].line, 3)
+  assert.equal(result.invalid[0].line, 4)
+})
+check('several blank lines keep accumulating correctly', () => {
+  const result = validateCsvRows([
+    header,
+    ['', '', ''],
+    ['   ', '', ''],
+    [''],
+    ['not-an-email', 'B', 'student'],
+  ])
+  assert.equal(result.invalid[0].line, 5)
+})
+check('a file that opens with blank lines still numbers from the file', () => {
+  const result = validateCsvRows([[''], header, ['not-an-email', 'B', 'student']])
+  assert.equal(result.headerError, null)
+  assert.equal(result.invalid[0].line, 3)
 })
 check('flags an unknown role', () => {
   const result = validateCsvRows([header, ['a@x.com', 'X', 'principal']])

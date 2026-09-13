@@ -30,19 +30,36 @@ export const CODE_HINT =
   'up to 16 characters, starting with a letter or digit; . _ & / - allowed'
 
 /**
- * FR-46: which roles must be given a department.
+ * FR-46, FR-50: which roles must be given a department.
  *
  * Students and faculty belong to one and their feedback is only meaningful when
- * attributed to it. Employers, alumni and academic peers are external to the
- * college's structure, and forcing a value on them would mean inventing
- * placeholder departments that then clutter every filter dropdown.
+ * attributed to it. An HOD *is* the administrator of one, so an HOD without a
+ * department has no scope at all — `hod_department()` returns NULL and every HOD
+ * policy in 0011_hod_scope.sql is keyed on it, so they would silently have no
+ * extra rights. Employers, alumni and academic peers are external to the college's
+ * structure, and forcing a value on them would mean inventing placeholder
+ * departments that then clutter every filter dropdown.
  *
  * One definition, imported by the add-user form, the edit panel, the CSV
  * validator and the Edge Function's mirror of this rule.
  */
-export const DEPARTMENT_REQUIRED_ROLES = new Set([ROLES.STUDENT, ROLES.FACULTY])
+export const DEPARTMENT_REQUIRED_ROLES = new Set([
+  ROLES.STUDENT,
+  ROLES.FACULTY,
+  ROLES.HOD,
+])
 
 export const departmentRequiredFor = (role) => DEPARTMENT_REQUIRED_ROLES.has(role)
+
+/**
+ * Whether a department is available as a new account-assignment target.
+ * Existing assignments remain valid so archived rows can still be edited.
+ */
+export function departmentIsAssignable(department, streams = []) {
+  if (!department?.is_active) return false
+  const stream = streams.find((row) => row.id === department.stream_id)
+  return !stream || stream.is_active !== false
+}
 
 /** "Computer Science (CS)", or just the name when it has no code. */
 export const describeDepartment = (dept) =>
@@ -90,6 +107,12 @@ export function validateDepartmentDraft(
 
   if (cleanCode && !CODE_PATTERN.test(cleanCode)) {
     errors.code = `Invalid short code. Use ${CODE_HINT}.`
+  } else if (cleanCode && /\s\s/.test(cleanCode)) {
+    // The database check constraint permits it and the normalise trigger keeps
+    // it, so this is the only gate. A run of spaces is invisible: HTML collapses
+    // it in the table, the code search substring-matches the stored string, and
+    // a spreadsheet cell will practically never reproduce it.
+    errors.code = 'Use single spaces in a short code.'
   } else if (cleanCode && siblings.some((row) => normaliseCode(row.code) === cleanCode)) {
     errors.code = `The code ${cleanCode} is already used in this stream.`
   }
@@ -141,7 +164,11 @@ export function resolveDepartment(
     : departments
 
   const wanted = slugifyName(deptText)
-  const wantedCode = normaliseCode(deptText)
+  // The code is derived from the RAW cell, not from the whitespace-collapsed
+  // name. `normaliseCode` mirrors the database trigger (`upper(btrim(code))`),
+  // which keeps internal runs, so a stored code of "B  SC" is unmatchable by any
+  // cell — including a byte-identical one — once the run has been collapsed.
+  const wantedCode = normaliseCode(department)
   let matches = inScope.filter((row) => slugifyName(row.name) === wanted)
   if (matches.length === 0) {
     matches = inScope.filter((row) => row.code && normaliseCode(row.code) === wantedCode)
@@ -224,4 +251,3 @@ export const DEPARTMENT_SORTS = [
   { value: 'recent', label: 'Recently added' },
   { value: 'oldest', label: 'Oldest first' },
 ]
-

@@ -32,6 +32,22 @@ editing `.env` — Vite only reads env files at startup.
 > The `service_role` key must never go in `.env` or any `VITE_` variable. It
 > would ship to the browser and bypass every RLS policy.
 
+**Then turn public sign-up off.** **Authentication → Sign In / Providers →
+Email**, clear *"Allow new users to sign up"*, and confirm with:
+
+```bash
+curl -s "$VITE_SUPABASE_URL/auth/v1/settings" -H "apikey: $VITE_SUPABASE_ANON_KEY"
+```
+
+`disable_signup` must read `true`. This is not optional and it is not a default:
+a new project ships with it **on**, and FR-2 says accounts are created by an
+administrator only. Left open, anyone who can receive mail at an address they
+control can create an account, and the auth-sync trigger used to take that
+account's role straight from the sign-up metadata — i.e. from the attacker. The
+trigger now ignores client metadata entirely and provisions a profile only for
+accounts the `invite-users` function stamped under `service_role`, so the two
+defences are independent; close this one anyway.
+
 ### 3. Run the migrations
 
 In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CLI):
@@ -47,6 +63,9 @@ In order, via **SQL Editor** in the dashboard (or `supabase db push` with the CL
 | `0007_sap_id.sql` | Optional unique SAP ID on a profile, usable in place of the email at sign-in |
 | `0008_departments.sql` | Streams and their departments, the department on a user and on a response, and the stream/department analytics filters |
 | `0009_privilege_guard.sql` | **Security fix.** Makes the profile privilege guard actually reject respondent self-edits — see below |
+| `0010_hod_role.sql` | The head-of-department role |
+| `0011_hod_scope.sql` | Department scoping for an HOD: profiles, responses, questions, audit and analytics all narrowed to their own department |
+| `20260910180050_harden_provisioning_and_hod_status.sql` | **Security fix.** Provisions a profile only from server-stamped `raw_app_meta_data`, so client-supplied sign-up metadata can no longer set a role or a department; and stops an HOD changing account status |
 
 ### 4. Create the first admin
 
@@ -209,7 +228,8 @@ Archiving and deleting are different operations. Archiving (`is_active = false`)
 takes a department out of the pickers while its people keep it and its responses
 stay in analytics — the same shape as question soft-delete (FR-32). Deleting
 removes the row, and `on delete restrict` means Postgres refuses while anything
-still references it; the page turns that refusal into the suggestion to archive.
+still references it — including a soft-deleted question, whose history remains
+permanent. The page turns that refusal into the suggestion to archive.
 
 Stream and department are deliberately **not** columns in the CSV export. The
 export already strips the faculty form's `department` *answer* as identifying data

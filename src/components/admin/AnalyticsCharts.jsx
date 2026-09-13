@@ -186,7 +186,18 @@ export function TrendChart({ rows }) {
               strokeWidth={2}
               // Leaves a visible gap rather than joining across a missing cycle.
               connectNulls={false}
-              dot={(props) => <VersionDot {...props} colour={SERIES[i % SERIES.length]} seriesKey={s.key} />}
+              // `key` is destructured out of what recharts passes and applied
+              // directly. Spread into JSX it trips React's "props object
+              // containing a 'key' prop is being spread" warning — an error in
+              // a future major — and the dot does not get the key intended.
+              dot={({ key, ...rest }) => (
+                <VersionDot
+                  key={key}
+                  {...rest}
+                  colour={SERIES[i % SERIES.length]}
+                  seriesKey={s.key}
+                />
+              )}
             />
           ))}
         </LineChart>

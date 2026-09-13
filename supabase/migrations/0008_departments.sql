@@ -952,4 +952,3 @@ on conflict (stream_id, slug) do nothing;
 -- PostgREST caches the schema; without this the new tables and the recreated
 -- functions 404 until it reloads on its own.
 notify pgrst, 'reload schema';
-

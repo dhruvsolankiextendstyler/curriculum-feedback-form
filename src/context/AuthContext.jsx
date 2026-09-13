@@ -14,6 +14,7 @@ const AuthContext = createContext(null)
  * they cannot use.
  */
 const PROFILE_COLUMN_SETS = [
+  'id, email, full_name, sap_id, role, department_id, status, must_change_password, removed_at',
   'id, email, full_name, sap_id, role, status, must_change_password, removed_at',
   'id, email, full_name, role, status, must_change_password, removed_at',
   'id, email, full_name, role, status',
@@ -22,6 +23,7 @@ const PROFILE_COLUMN_SETS = [
 /** Safe readings of the flags an older schema has no column for. */
 const PROFILE_DEFAULTS = {
   sap_id: null,
+  department_id: null,
   must_change_password: false,
   removed_at: null,
 }
@@ -198,7 +200,7 @@ const describeSignInFailure = (error) =>
 
 function isMissingProfileColumn(message = '') {
   return (
-    /(sap_id|must_change_password|removed_at)/i.test(message) &&
+    /(sap_id|department_id|must_change_password|removed_at)/i.test(message) &&
     /(does not exist|could not find|schema cache)/i.test(message)
   )
 }

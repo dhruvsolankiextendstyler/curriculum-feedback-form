@@ -66,23 +66,31 @@ export async function loadDepartmentTree() {
  * `users` counts only the current list, but `blocking` counts every referencing
  * row — removed accounts included, because the foreign key does not care that a
  * profile is filed under "removed" and will still refuse the delete.
+ *
+ * All THREE referencing tables are counted. `questions.department_id` is the
+ * third `on delete restrict` (0011_hod_scope.sql), and leaving it out made a
+ * department with a question and nothing else report zero usage: the confirm
+ * dialog promised the delete would succeed, then it failed 23503 and the banner
+ * blamed people and responses that did not exist (FR-48). Soft-deleted questions
+ * count too — the foreign key still holds.
  */
 export async function loadDepartmentUsage() {
-  const [profiles, responses] = await Promise.all([
+  const [profiles, responses, questions] = await Promise.all([
     supabase.from('profiles').select('department_id, removed_at'),
     supabase.from('responses').select('department_id'),
+    supabase.from('questions').select('department_id'),
   ])
 
   // The pre-migration window: report no usage rather than failing the page.
-  if (profiles.error || responses.error) {
-    const error = profiles.error ?? responses.error
+  if (profiles.error || responses.error || questions.error) {
+    const error = profiles.error ?? responses.error ?? questions.error
     if (isMissingDepartmentColumn(error.message)) return {}
     throw new Error(translateDepartmentError(error))
   }
 
   const usage = {}
   const row = (id) => {
-    usage[id] ??= { users: 0, removedUsers: 0, responses: 0, blocking: 0 }
+    usage[id] ??= { users: 0, removedUsers: 0, responses: 0, questions: 0, blocking: 0 }
     return usage[id]
   }
 
@@ -96,6 +104,12 @@ export async function loadDepartmentUsage() {
     if (!response.department_id) continue
     const entry = row(response.department_id)
     entry.responses += 1
+    entry.blocking += 1
+  }
+  for (const question of questions.data ?? []) {
+    if (!question.department_id) continue
+    const entry = row(question.department_id)
+    entry.questions += 1
     entry.blocking += 1
   }
 
@@ -134,13 +148,15 @@ export async function updateStream(streamId, { name, is_active }, existing = [])
   if (is_active !== undefined) patch.is_active = Boolean(is_active)
   if (Object.keys(patch).length === 0) return
 
-  const { error } = await supabase.from('streams').update(patch).eq('id', streamId)
-  if (error) throw new Error(translateDepartmentError(error))
+  await mustAffectRow(
+    supabase.from('streams').update(patch).eq('id', streamId).select('id'),
+  )
 }
 
 export async function deleteStream(streamId) {
-  const { error } = await supabase.from('streams').delete().eq('id', streamId)
-  if (error) throw new Error(translateDepartmentError(error))
+  await mustAffectRow(
+    supabase.from('streams').delete().eq('id', streamId).select('id'),
+  )
 }
 
 // ---------- departments ----------
@@ -188,18 +204,41 @@ export async function updateDepartment(
   if (is_active !== undefined) patch.is_active = Boolean(is_active)
   if (Object.keys(patch).length === 0) return
 
-  const { error } = await supabase.from('departments').update(patch).eq('id', departmentId)
-  if (error) throw new Error(translateDepartmentError(error))
+  await mustAffectRow(
+    supabase.from('departments').update(patch).eq('id', departmentId).select('id'),
+  )
 }
 
 export async function deleteDepartment(departmentId) {
-  const { error } = await supabase.from('departments').delete().eq('id', departmentId)
-  if (error) throw new Error(translateDepartmentError(error))
+  await mustAffectRow(
+    supabase.from('departments').delete().eq('id', departmentId).select('id'),
+  )
 }
 
 // ---------- plumbing ----------
 
 const firstError = (errors) => Object.values(errors)[0] ?? 'That change is not valid.'
+
+/**
+ * Runs an update or a delete and insists Postgres actually returned the row.
+ *
+ * RLS does not raise on a statement it filters out and neither does a WHERE that
+ * matches nothing: both come back as success with zero rows. Without `.select()`
+ * the page then shows "<name> deleted." for a row that never existed, or
+ * "Saved <name>." for a rename the database discarded — while `refresh()` puts
+ * the truth in the table right beside the notice. The two create paths already
+ * work this way; this is the same contract for the other four.
+ */
+async function mustAffectRow(query) {
+  const { data, error } = await query
+  if (error) throw new Error(translateDepartmentError(error))
+  if (!data || data.length === 0) {
+    throw new Error(
+      'Nothing was changed. The row may already be gone, or your access may have changed — reload the page.',
+    )
+  }
+  return data
+}
 
 /** New rows sort after the ones already there rather than jumping to the top. */
 const nextOrder = (rows) =>
@@ -241,6 +280,12 @@ export function translateDepartmentError(error) {
     if (/departments_stream_id_fkey/i.test(message)) {
       return 'This stream still has departments. Move or delete them first, or archive the stream instead.'
     }
+    if (/questions_department_id_fkey/i.test(message)) {
+      // Named separately because it is the one blocker the admin cannot clear:
+      // questions are only ever soft-deleted (FR-32), and a soft-deleted one
+      // still holds the foreign key.
+      return 'This department has its own questions, so it cannot be deleted — removing a question from a form does not release it. Archive the department instead; it leaves the pickers and keeps its history.'
+    }
     return 'People or responses are still attached to this department, so it cannot be deleted. Archive it instead — it leaves the pickers and keeps its history.'
   }
   if (code === '42501' || /row-level security/i.test(message)) {
@@ -248,5 +293,3 @@ export function translateDepartmentError(error) {
   }
   return message
 }
-
-

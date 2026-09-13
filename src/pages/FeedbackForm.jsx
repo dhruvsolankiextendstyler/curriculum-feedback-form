@@ -6,6 +6,7 @@ import { loadForm } from '../lib/formSchema'
 import {
   cycleIsOpen,
   loadActiveCycle,
+  loadCycleById,
   loadResponse,
   saveSubmission,
 } from '../lib/submissions'
@@ -21,7 +22,7 @@ import { bindingIdFor, validateForm } from '../lib/validation'
  */
 export default function FeedbackForm() {
   const { responseId } = useParams()
-  const { user, role } = useAuth()
+  const { user, role, profile } = useAuth()
   const navigate = useNavigate()
 
   const [schema, setSchema] = useState(null)
@@ -59,11 +60,19 @@ export default function FeedbackForm() {
       try {
         const [loadedCycle, loadedSchema] = await Promise.all([
           loadActiveCycle(),
-          loadForm(role),
+          // The department decides which extra question set is appended (FR-53).
+          loadForm(role, profile?.department_id ?? null),
         ])
         if (!active) return
 
         let initialValues = {}
+        // FR-16: the window that governs this page is the one the RESPONSE
+        // belongs to, not whichever cycle happens to be active. A closed-cycle
+        // submission is reachable by a bookmarked or direct URL — "My
+        // submissions" does not link it — and derived from the active cycle it
+        // opened fully editable, labelled with the wrong year, against a form
+        // the database would then refuse to write.
+        let formCycle = loadedCycle
         if (responseId) {
           // Schema first, then the response: loadResponse needs the question
           // types to decode stored answers unambiguously.
@@ -74,9 +83,15 @@ export default function FeedbackForm() {
             return
           }
           initialValues = existing.values
+
+          if (existing.response?.cycle_id && existing.response.cycle_id !== loadedCycle?.id) {
+            const ownCycle = await loadCycleById(existing.response.cycle_id)
+            if (!active) return
+            if (ownCycle) formCycle = ownCycle
+          }
         }
 
-        setCycle(loadedCycle)
+        setCycle(formCycle)
         setSchema(loadedSchema)
         setValues(initialValues)
         setStatus({ phase: 'ready', message: null })
@@ -89,7 +104,7 @@ export default function FeedbackForm() {
     return () => {
       active = false
     }
-  }, [role, responseId])
+  }, [role, profile?.department_id, responseId])
 
   // Attach each rating question to its scale once, so field components and
   // validation share one shape.

@@ -1,13 +1,18 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Papa from 'papaparse'
-import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../../lib/constants'
+import { useAuth } from '../../context/AuthContext'
+import {
+  ASSIGNABLE_ROLES,
+  HOD_CREATABLE_ROLES,
+  isHod,
+  ROLES,
+  ROLE_LABELS,
+} from '../../lib/constants'
 import { SAP_ID_HINT, validateSapId } from '../../lib/identifier'
 import { CSV_TEMPLATE, validateCsvRows } from '../../lib/admin/csv'
 import { loadExistingIdentifiers } from '../../lib/admin/users'
 import { departmentRequiredFor, describeDepartment } from '../../lib/admin/departmentRules'
-
-const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
 
 const EMPTY_TREE = { streams: [], departments: [] }
 
@@ -18,9 +23,27 @@ const EMPTY_TREE = { streams: [], departments: [] }
  * Passing it down rather than fetching it again keeps one source of truth for
  * what an admin may pick, and lets the CSV importer resolve names to ids without
  * a round trip per row (FR-47).
+ *
+ * A head of department gets a narrower version of the same forms: two roles rather
+ * than seven, and their own department rather than a picker (FR-51). The Edge
+ * Function re-applies both rules under service_role, so this is the readable
+ * version of the boundary rather than the boundary itself.
  */
 export default function UserImport({ create, onDone, onError, tree = EMPTY_TREE }) {
   const [mode, setMode] = useState('single')
+  const { role, profile } = useAuth()
+
+  const scope = useMemo(() => {
+    const hod = isHod(role)
+    const department = hod
+      ? ((tree.departments ?? []).find((d) => d.id === profile?.department_id) ?? null)
+      : null
+    return {
+      hod,
+      department,
+      roles: hod ? HOD_CREATABLE_ROLES : ASSIGNABLE_ROLES,
+    }
+  }, [role, profile?.department_id, tree.departments])
 
   return (
     <div className="import-panel">
@@ -46,9 +69,21 @@ export default function UserImport({ create, onDone, onError, tree = EMPTY_TREE 
       </div>
 
       {mode === 'single' ? (
-        <SingleUser create={create} onDone={onDone} onError={onError} tree={tree} />
+        <SingleUser
+          create={create}
+          onDone={onDone}
+          onError={onError}
+          tree={tree}
+          scope={scope}
+        />
       ) : (
-        <CsvUsers create={create} onDone={onDone} onError={onError} tree={tree} />
+        <CsvUsers
+          create={create}
+          onDone={onDone}
+          onError={onError}
+          tree={tree}
+          scope={scope}
+        />
       )}
     </div>
   )
@@ -64,7 +99,7 @@ const EMPTY_USER = {
   temporary_password: '',
 }
 
-function SingleUser({ create, onDone, onError, tree }) {
+function SingleUser({ create, onDone, onError, tree, scope }) {
   const [form, setForm] = useState(EMPTY_USER)
   const [credential, setCredential] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -84,6 +119,9 @@ function SingleUser({ create, onDone, onError, tree }) {
   )
   const departmentRequired = departmentRequiredFor(form.role)
 
+  // An HOD never chooses: the account joins the department they head.
+  const forcedDepartmentId = scope.hod ? (scope.department?.id ?? '') : null
+
   async function handleSubmit(event) {
     event.preventDefault()
 
@@ -93,7 +131,12 @@ function SingleUser({ create, onDone, onError, tree }) {
       onError(sapCheck.reason)
       return
     }
-    if (departmentRequired && !form.department_id) {
+    const departmentId = forcedDepartmentId ?? form.department_id
+    if (scope.hod && !departmentId) {
+      onError('Your account has no department, so it cannot add users. Ask an administrator.')
+      return
+    }
+    if (departmentRequired && !departmentId) {
       onError(`${ROLE_LABELS[form.role]} accounts need a stream and a department.`)
       return
     }
@@ -107,7 +150,7 @@ function SingleUser({ create, onDone, onError, tree }) {
           full_name: form.full_name,
           sap_id: sapCheck.value ?? '',
           role: form.role,
-          department_id: form.department_id || null,
+          department_id: departmentId || null,
           temporary_password: form.temporary_password,
         },
       ])
@@ -178,74 +221,93 @@ function SingleUser({ create, onDone, onError, tree }) {
           setForm((current) => ({ ...current, role: event.target.value }))
         }
       >
-        {ALL_ROLES.map((role) => (
+        {scope.roles.map((role) => (
           <option key={role} value={role}>
             {ROLE_LABELS[role]}
           </option>
         ))}
       </select>
 
-      <label htmlFor="create-stream">
-        Stream{departmentRequired ? '' : ' (optional)'}
-      </label>
-      <select
-        id="create-stream"
-        required={departmentRequired}
-        value={form.stream_id}
-        onChange={(event) =>
-          // The department list is scoped to the stream, so a stream change
-          // invalidates whatever was picked under the previous one.
-          setForm((current) => ({
-            ...current,
-            stream_id: event.target.value,
-            department_id: '',
-          }))
-        }
-      >
-        <option value="">No stream</option>
-        {streams.map((stream) => (
-          <option key={stream.id} value={stream.id}>
-            {stream.name}
-          </option>
-        ))}
-      </select>
+      {scope.hod ? (
+        <p className="field-notice">
+          {scope.department ? (
+            <>
+              This account joins <strong>{describeDepartment(scope.department)}</strong>,
+              the department you head. Moving someone between departments is an
+              administrator&rsquo;s job.
+            </>
+          ) : (
+            <>
+              Your account has no department assigned, so it cannot add users. Ask an
+              administrator to set one.
+            </>
+          )}
+        </p>
+      ) : (
+        <>
+          <label htmlFor="create-stream">
+            Stream{departmentRequired ? '' : ' (optional)'}
+          </label>
+          <select
+            id="create-stream"
+            required={departmentRequired}
+            value={form.stream_id}
+            onChange={(event) =>
+              // The department list is scoped to the stream, so a stream change
+              // invalidates whatever was picked under the previous one.
+              setForm((current) => ({
+                ...current,
+                stream_id: event.target.value,
+                department_id: '',
+              }))
+            }
+          >
+            <option value="">No stream</option>
+            {streams.map((stream) => (
+              <option key={stream.id} value={stream.id}>
+                {stream.name}
+              </option>
+            ))}
+          </select>
 
-      <label htmlFor="create-department">
-        Department{departmentRequired ? '' : ' (optional)'}
-      </label>
-      <select
-        id="create-department"
-        required={departmentRequired}
-        disabled={!form.stream_id}
-        aria-describedby="create-department-hint"
-        value={form.department_id}
-        onChange={(event) =>
-          setForm((current) => ({ ...current, department_id: event.target.value }))
-        }
-      >
-        <option value="">
-          {!form.stream_id
-            ? 'Choose a stream first'
-            : departments.length === 0
-              ? 'No departments in this stream'
-              : 'Choose a department'}
-        </option>
-        {departments.map((department) => (
-          <option key={department.id} value={department.id}>
-            {describeDepartment(department)}
-          </option>
-        ))}
-      </select>
-      <p className="field-hint" id="create-department-hint">
-        {departmentRequired
-          ? `${ROLE_LABELS[form.role]} accounts must belong to a department — it is what the analytics filters group them by.`
-          : 'Optional for this role. Employers, alumni and academic peers are outside the college structure.'}{' '}
-        {streams.length === 0 && (
-          <>
-            No streams exist yet — <Link to="/admin/departments">add them first</Link>.
-          </>
-        )}
-      </p>
+          <label htmlFor="create-department">
+            Department{departmentRequired ? '' : ' (optional)'}
+          </label>
+          <select
+            id="create-department"
+            required={departmentRequired}
+            disabled={!form.stream_id}
+            aria-describedby="create-department-hint"
+            value={form.department_id}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, department_id: event.target.value }))
+            }
+          >
+            <option value="">
+              {!form.stream_id
+                ? 'Choose a stream first'
+                : departments.length === 0
+                  ? 'No departments in this stream'
+                  : 'Choose a department'}
+            </option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {describeDepartment(department)}
+              </option>
+            ))}
+          </select>
+          <p className="field-hint" id="create-department-hint">
+            {departmentRequired
+              ? `${ROLE_LABELS[form.role]} accounts must belong to a department — it is what the analytics filters group them by.`
+              : 'Optional for this role. Employers, alumni and academic peers are outside the college structure.'}{' '}
+            {streams.length === 0 && (
+              <>
+                No streams exist yet — <Link to="/admin/departments">add them first</Link>.
+              </>
+            )}
+          </p>
+        </>
+      )}
 
       <label htmlFor="create-password">Temporary password</label>
       <input
@@ -284,7 +346,7 @@ function SingleUser({ create, onDone, onError, tree }) {
   )
 }
 
-function CsvUsers({ create, onDone, onError, tree }) {
+function CsvUsers({ create, onDone, onError, tree, scope }) {
   const fileRef = useRef(null)
   const [preview, setPreview] = useState(null)
   const [credentials, setCredentials] = useState([])
@@ -296,6 +358,14 @@ function CsvUsers({ create, onDone, onError, tree }) {
     return (id) => (id ? describeDepartment(byId.get(id)) : '')
   }, [tree.departments])
 
+  // An HOD with no department has no scope to import into: `invite-users`
+  // refuses before it parses the body, so previewing the file's own department
+  // column here would walk them through a green preview under a banner claiming
+  // a pinning rule that is not being applied (FR-51). The single-user tab
+  // already guards this up front.
+  const pinnedDepartmentId = scope.hod ? (scope.department?.id ?? null) : null
+  const hodWithoutDepartment = scope.hod && !pinnedDepartmentId
+
   async function handleFile(event) {
     const file = event.target.files?.[0]
     if (!file) return
@@ -304,12 +374,31 @@ function CsvUsers({ create, onDone, onError, tree }) {
     setCredentials([])
     setProgress(null)
 
+    if (hodWithoutDepartment) {
+      onError(
+        'Your account has no department assigned, so it cannot add users. Ask an administrator to set one.',
+      )
+      if (fileRef.current) fileRef.current.value = ''
+      return
+    }
+
     Papa.parse(file, {
-      skipEmptyLines: true,
+      // Blank lines are kept so `validateCsvRows` can report the PHYSICAL line
+      // of every skipped row. Dropping them here shifts each later line number
+      // by one per blank, and "Line 12" is the only handle the admin has when
+      // the email cell itself is empty (FR-23). csv.js filters them out after
+      // recording where they were.
+      skipEmptyLines: false,
       complete: async (parsed) => {
         try {
           const existing = await loadExistingIdentifiers()
-          const result = validateCsvRows(parsed.data, existing, tree)
+          const result = validateCsvRows(parsed.data, existing, {
+            ...tree,
+            // An HOD's file lands in their department whatever it says, and cannot
+            // name a role they may not create.
+            forceDepartmentId: pinnedDepartmentId,
+            allowedRoles: scope.hod ? scope.roles : null,
+          })
           if (result.headerError) {
             onError(result.headerError)
             return
@@ -386,6 +475,23 @@ function CsvUsers({ create, onDone, onError, tree }) {
         <code>stream</code> is only needed to tell apart a name that exists in two
         streams. Student and faculty rows without one are skipped.
       </p>
+      {/* The pinning notice is rendered only when a department is actually
+          pinned. Shown to a department-less HOD it would assert a rule the
+          validator is not applying. */}
+      {scope.hod && scope.department && (
+        <p className="field-notice">
+          Every row is added to <strong>{scope.department.name}</strong>{' '}
+          as a {scope.roles.map((r) => ROLE_LABELS[r]).join(' or ')}. Any{' '}
+          <code>stream</code> or <code>department</code> column in the file is ignored,
+          and a row naming any other role is skipped.
+        </p>
+      )}
+      {hodWithoutDepartment && (
+        <p className="field-notice">
+          Your account has no department assigned, so it cannot add users. Ask an
+          administrator to set one.
+        </p>
+      )}
 
       <div className="button-row">
         <button type="button" className="secondary" onClick={downloadTemplate}>
@@ -399,6 +505,7 @@ function CsvUsers({ create, onDone, onError, tree }) {
         ref={fileRef}
         type="file"
         accept=".csv,text/csv"
+        disabled={hodWithoutDepartment}
         onChange={handleFile}
       />
 
@@ -417,6 +524,14 @@ function CsvUsers({ create, onDone, onError, tree }) {
             {preview.valid.length} ready to add
             {preview.invalid.length > 0 && `, ${preview.invalid.length} skipped`}
           </h3>
+
+          {preview.ignoredColumns?.length > 0 && (
+            <p className="muted small">
+              The file&rsquo;s {preview.ignoredColumns.join(' and ')} column
+              {preview.ignoredColumns.length === 1 ? ' was' : 's were'} ignored —
+              every row goes to {scope.department?.name ?? 'your department'}.
+            </p>
+          )}
 
           {preview.invalid.length > 0 && (
             <details>

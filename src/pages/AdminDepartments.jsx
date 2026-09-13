@@ -100,6 +100,7 @@ export default function AdminDepartments() {
       user_count: data.usage[row.id]?.users ?? 0,
       removed_user_count: data.usage[row.id]?.removedUsers ?? 0,
       response_count: data.usage[row.id]?.responses ?? 0,
+      question_count: data.usage[row.id]?.questions ?? 0,
     }))
 
     const kept = decorated.filter((row) => {
@@ -591,6 +592,9 @@ export default function AdminDepartments() {
                   <th scope="col">Stream</th>
                   <th scope="col">Users</th>
                   <th scope="col">Responses</th>
+                  {/* Its own column because it is a delete blocker in its own
+                      right, and the only one an admin cannot clear. */}
+                  <th scope="col">Questions</th>
                   <th scope="col">Status</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
@@ -612,6 +616,7 @@ export default function AdminDepartments() {
                       )}
                     </td>
                     <td>{row.response_count}</td>
+                    <td>{row.question_count}</td>
                     <td>
                       <span className={`pill ${row.is_active ? 'active' : 'inactive'}`}>
                         {row.is_active ? 'active' : 'archived'}
@@ -651,8 +656,11 @@ export default function AdminDepartments() {
           <p className="muted small">
             Archiving takes a department out of the pickers and the add-user form
             without touching the accounts already in it. Deleting removes the row, and
-            the database refuses that while any account or response still references
-            it — the counts above are what to check first.
+            the database refuses that while any account, response or question still
+            references it — the three counts above are what to check first. A
+            department that has ever had its own question can only be archived:
+            removing a question from a form keeps its history, and so keeps the
+            reference.
           </p>
         </>
       )}
@@ -678,8 +686,10 @@ function describeUsage(usage) {
   if (usage?.responses) {
     parts.push(`${usage.responses} response${usage.responses === 1 ? '' : 's'}`)
   }
+  if (usage?.questions) {
+    parts.push(`${usage.questions} question${usage.questions === 1 ? '' : 's'}`)
+  }
   if (parts.length === 0) return 'nothing'
   if (parts.length === 1) return parts[0]
   return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
 }
-

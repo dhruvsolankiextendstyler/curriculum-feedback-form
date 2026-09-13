@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import AdminNav from '../components/AdminNav'
 import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
-import { RESPONDENT_ROLES, ROLES, ROLE_LABELS } from '../lib/constants'
+import {
+  ASSIGNABLE_ROLES,
+  HOD_CREATABLE_ROLES,
+  isHod,
+  ROLE_LABELS,
+} from '../lib/constants'
 import { SAP_ID_HINT } from '../lib/identifier'
 import {
   createUsers,
@@ -14,18 +19,27 @@ import {
   updateUser,
 } from '../lib/admin/users'
 import {
+  departmentIsAssignable,
   departmentRequiredFor,
   describeDepartment,
-  loadDepartmentTree,
-} from '../lib/admin/departments'
-
-const ALL_ROLES = [ROLES.ADMIN, ...RESPONDENT_ROLES]
+} from '../lib/admin/departmentRules'
+import { loadDepartmentTree } from '../lib/admin/departments'
 
 const EMPTY_TREE = { streams: [], departments: [] }
 
-/** FR-19 to FR-23, FR-46: direct creation, editing, filtering and soft removal. */
+/**
+ * FR-19 to FR-23, FR-46, FR-51: direct creation, editing, filtering and soft
+ * removal.
+ *
+ * A head of department sees the same page narrowed to their own department. The
+ * narrowing is done by RLS (0011_hod_scope.sql) — the list simply arrives shorter —
+ * so everything here is about not offering actions the database would refuse:
+ * no other department, only two roles, and no deactivate, remove or restore.
+ */
 export default function AdminUsers() {
-  const { user: currentUser } = useAuth()
+  const { user: currentUser, profile, role: currentRole } = useAuth()
+  const hod = isHod(currentRole)
+
   const [filters, setFilters] = useState({
     view: 'current',
     role: '',
@@ -64,6 +78,8 @@ export default function AdminUsers() {
     [tree.streams],
   )
   const hasDepartments = tree.streams.length > 0
+  const ownDepartment = hod ? (departmentById.get(profile?.department_id) ?? null) : null
+  const roleOptions = hod ? HOD_CREATABLE_ROLES : ASSIGNABLE_ROLES
 
   /** A stream filter is the set of its departments; null means "no stream chosen". */
   const departmentIdsForStream = useMemo(
@@ -110,7 +126,7 @@ export default function AdminUsers() {
     if (!window.confirm(`${verb} ${target.email}?`)) return
 
     try {
-      await setUserStatus(target.id, next)
+      await setUserStatus(target.id, next, { asHod: hod })
       setNotice(`${target.email} is now ${next}.`)
       await refresh()
     } catch (err) {
@@ -148,14 +164,26 @@ export default function AdminUsers() {
   async function handleSaveEdit(event) {
     event.preventDefault()
     try {
-      await updateUser(editing.id, {
-        full_name: editing.full_name ?? '',
-        sap_id: editing.sap_id ?? '',
-        role: editing.role,
-        // Omitted entirely when the column is not there yet, rather than sent as
-        // null and rejected by the schema cache.
-        ...(hasDepartments ? { department_id: editing.department_id ?? '' } : {}),
-      })
+      await updateUser(
+        editing.id,
+        {
+          full_name: editing.full_name ?? '',
+          sap_id: editing.sap_id ?? '',
+          role: editing.role,
+          // Omitted entirely when the column is not there yet, rather than sent as
+          // null and rejected by the schema cache — and always omitted for an HOD,
+          // who cannot move an account between departments at all.
+          ...(hasDepartments && !hod
+            ? { department_id: editing.department_id ?? '' }
+            : {}),
+        },
+        {
+          asHod: hod,
+          departments: tree.departments,
+          streams: tree.streams,
+          currentDepartmentId: editing.original_department_id,
+        },
+      )
       setNotice(`Saved changes to ${editing.email}.`)
       setEditing(null)
       await refresh()
@@ -169,6 +197,9 @@ export default function AdminUsers() {
     setEditing({
       ...user,
       stream_id: departmentById.get(user.department_id)?.stream_id ?? '',
+      // Kept separately because `department_id` is the edited value from here
+      // on, and telling a move apart from a rename needs the original.
+      original_department_id: user.department_id ?? null,
     })
   }
 
@@ -178,6 +209,23 @@ export default function AdminUsers() {
     <section>
       <h1>Users</h1>
       <AdminNav />
+
+      {hod && (
+        <p className="muted">
+          {ownDepartment ? (
+            <>
+              You are administering <strong>{describeDepartment(ownDepartment)}</strong>.
+              Only its accounts are listed, and only an administrator can move someone
+              in or out, deactivate or remove them.
+            </>
+          ) : (
+            <>
+              Your account has no department assigned, so there is nothing to
+              administer. Ask an administrator to set one.
+            </>
+          )}
+        </p>
+      )}
 
       {notice && (
         <div className="notice success" role="status">
@@ -237,7 +285,7 @@ export default function AdminUsers() {
             }
           >
             <option value="">All roles</option>
-            {ALL_ROLES.map((role) => (
+            {roleOptions.map((role) => (
               <option key={role} value={role}>
                 {ROLE_LABELS[role]}
               </option>
@@ -258,7 +306,7 @@ export default function AdminUsers() {
             <option value="inactive">Inactive</option>
           </select>
         </div>
-        {hasDepartments && (
+        {hasDepartments && !hod && (
           <>
             <div>
               <label htmlFor="filter-stream">Stream</label>
@@ -399,13 +447,17 @@ export default function AdminUsers() {
                     </td>
                     <td className="actions">
                       {removedView ? (
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => handleRestore(user)}
-                        >
-                          Restore
-                        </button>
+                        hod ? (
+                          <span className="muted small">admin only</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => handleRestore(user)}
+                          >
+                            Restore
+                          </button>
+                        )
                       ) : (
                         <>
                           <button
@@ -416,24 +468,28 @@ export default function AdminUsers() {
                             Edit
                           </button>
                           {user.id === currentUser?.id ? (
-                            <span className="muted small">that's you</span>
+                            <span className="muted small">that&rsquo;s you</span>
                           ) : (
-                            <>
-                              <button
-                                type="button"
-                                className="secondary"
-                                onClick={() => handleToggleStatus(user)}
-                              >
-                                {user.status === 'active' ? 'Deactivate' : 'Reactivate'}
-                              </button>
-                              <button
-                                type="button"
-                                className="secondary danger"
-                                onClick={() => handleRemove(user)}
-                              >
-                                Remove
-                              </button>
-                            </>
+                            // FR-51: deactivating and removing stay with an admin,
+                            // so an HOD is not offered a button RLS would refuse.
+                            !hod && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="secondary"
+                                  onClick={() => handleToggleStatus(user)}
+                                >
+                                  {user.status === 'active' ? 'Deactivate' : 'Reactivate'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="secondary danger"
+                                  onClick={() => handleRemove(user)}
+                                >
+                                  Remove
+                                </button>
+                              </>
+                            )
                           )}
                         </>
                       )}
@@ -485,14 +541,14 @@ export default function AdminUsers() {
                 setEditing((current) => ({ ...current, role: event.target.value }))
               }
             >
-              {ALL_ROLES.map((role) => (
+              {roleOptions.map((role) => (
                 <option key={role} value={role}>
                   {ROLE_LABELS[role]}
                 </option>
               ))}
             </select>
 
-            {hasDepartments && (
+            {hasDepartments && !hod && (
               <>
                 <label htmlFor="edit-stream">
                   Stream{departmentRequiredFor(editing.role) ? '' : ' (optional)'}
@@ -538,7 +594,17 @@ export default function AdminUsers() {
                     {editing.stream_id ? 'Not assigned' : 'Choose a stream first'}
                   </option>
                   {tree.departments
-                    .filter((row) => row.stream_id === editing.stream_id)
+                    .filter(
+                      (row) =>
+                        row.stream_id === editing.stream_id &&
+                        // Archiving takes a department out of the pickers
+                        // (FR-48), so it is not offered as a target. The
+                        // account's CURRENT department stays listed, archived
+                        // or not: dropping it would silently reassign someone
+                        // already filed there on the next rename.
+                        (departmentIsAssignable(row, tree.streams) ||
+                          row.id === editing.department_id),
+                    )
                     .map((department) => (
                       <option key={department.id} value={department.id}>
                         {describeDepartment(department)}
@@ -554,6 +620,15 @@ export default function AdminUsers() {
                   submitted — a response keeps the department it was given under.
                 </p>
               </>
+            )}
+
+            {hod && (
+              <p className="field-notice">
+                This account stays in{' '}
+                <strong>{describeDepartment(ownDepartment) || 'your department'}</strong>.
+                Only an administrator can move it, and only an administrator can
+                appoint another head of department.
+              </p>
             )}
 
             <div className="button-row">

@@ -20,6 +20,7 @@ const load = (rel) => import(pathToFileURL(path.join(root, rel)).href)
 const {
   CODE_PATTERN,
   DEPARTMENT_REQUIRED_ROLES,
+  departmentIsAssignable,
   departmentRequiredFor,
   describeDepartment,
   normaliseCode,
@@ -152,6 +153,13 @@ check('a malformed code is rejected', () =>
     validateDepartmentDraft({ ...newDept, code: '-nope' }, departments).errors.code,
     /invalid short code/i,
   ))
+check('REGRESSION: a code with two consecutive spaces is refused up front', () =>
+  assert.match(
+    validateDepartmentDraft({ ...newDept, code: 'B  SC' }, departments).errors.code,
+    /single spaces/i,
+  ))
+check('one internal space is still allowed', () =>
+  assert.equal(validateDepartmentDraft({ ...newDept, code: 'B SC' }, departments).ok, true))
 check('an archived sibling still blocks the name — it can be restored', () =>
   assert.match(
     validateDepartmentDraft({ streamId: 'st-sci', name: 'Home Science' }, departments)
@@ -173,20 +181,36 @@ check('a cleared code normalises to null rather than ""', () =>
     null,
   ))
 
-console.log('\ndepartmentRequiredFor — FR-46')
+console.log('\ndepartmentRequiredFor — FR-46, FR-50')
 check('a student needs one', () => assert.equal(departmentRequiredFor('student'), true))
 check('faculty need one', () => assert.equal(departmentRequiredFor('faculty'), true))
+check('an HOD needs one — it is their entire scope', () =>
+  assert.equal(departmentRequiredFor('hod'), true))
 check('an employer does not', () => assert.equal(departmentRequiredFor('employer'), false))
 check('an alumnus does not', () => assert.equal(departmentRequiredFor('alumni'), false))
 check('an academic peer does not', () =>
   assert.equal(departmentRequiredFor('academic_peer'), false))
-check('an admin does not', () => assert.equal(departmentRequiredFor('admin'), false))
+check('a global admin does not', () => assert.equal(departmentRequiredFor('admin'), false))
 check('an unknown or absent role does not', () => {
   assert.equal(departmentRequiredFor(undefined), false)
   assert.equal(departmentRequiredFor('principal'), false)
 })
-check('exactly two roles require one', () =>
-  assert.equal(DEPARTMENT_REQUIRED_ROLES.size, 2))
+check('exactly three roles require one', () =>
+  assert.equal(DEPARTMENT_REQUIRED_ROLES.size, 3))
+
+console.log('\ndepartmentIsAssignable — archived rows are not new targets')
+check('an active department in an active stream is assignable', () =>
+  assert.equal(departmentIsAssignable(departments[0], streams), true))
+check('an archived department is not assignable', () =>
+  assert.equal(departmentIsAssignable(departments[4], streams), false))
+check('a department under an archived stream is not assignable', () =>
+  assert.equal(
+    departmentIsAssignable(departments[0], [
+      { ...streams[0], is_active: false },
+      ...streams.slice(1),
+    ]),
+    false,
+  ))
 
 console.log('\ndescribeDepartment')
 check('appends the code when there is one', () =>
@@ -216,6 +240,28 @@ check('a short code resolves too — a spreadsheet is as likely to say CS', () =
     resolveDepartment({ stream: 'Science', department: 'cs' }, departments, streams),
     { ok: true, id: 'd-cs' },
   ))
+check('REGRESSION: a code with an internal space run is matchable by its own text', () => {
+  // normaliseCode mirrors the trigger (upper(btrim(code))) and keeps internal
+  // runs, so deriving the wanted code from the whitespace-COLLAPSED name made
+  // such a code unmatchable by any cell, including a byte-identical one - and
+  // the skip message then named a code the admin never typed.
+  const odd = [...departments, { id: 'd-odd', stream_id: 'st-com', name: 'Banking', code: 'B  SC', is_active: true }]
+  assert.deepEqual(resolveDepartment({ department: 'B  SC' }, odd, streams), {
+    ok: true,
+    id: 'd-odd',
+  })
+  assert.deepEqual(resolveDepartment({ department: ' b  sc ' }, odd, streams), {
+    ok: true,
+    id: 'd-odd',
+  })
+})
+check('a single-space code is unaffected by that change', () => {
+  const spaced = [...departments, { id: 'd-sp', stream_id: 'st-com', name: 'Banking', code: 'B SC', is_active: true }]
+  assert.deepEqual(resolveDepartment({ department: 'b sc' }, spaced, streams), {
+    ok: true,
+    id: 'd-sp',
+  })
+})
 check('both blank means "no department", not an error', () =>
   assert.deepEqual(resolveDepartment({}, departments, streams), { ok: true, id: null }))
 check('a unique name needs no stream', () =>
@@ -378,6 +424,22 @@ check('an archived department is refused by name, not reported as unknown', () =
   assert.equal(result.valid.length, 0)
   assert.match(result.invalid[0].reason, /"Home Science" is archived/i)
 })
+check('REGRESSION: an archived stream takes its departments out of the import too', () => {
+  // Archiving a stream leaves its departments is_active = true - there is no
+  // cascade - so the CSV path was the one place that still accepted them, while
+  // the add-user form on the same screen hid them.
+  const archivedStream = {
+    streams: [{ ...streams[0], is_active: false }, ...streams.slice(1)],
+    departments,
+  }
+  const result = validateCsvRows(
+    [header, ['a@x.com', 'Asha', 'student', 'Science', 'Computer Science']],
+    {},
+    archivedStream,
+  )
+  assert.equal(result.valid.length, 0)
+  assert.match(result.invalid[0].reason, /Science stream is archived/i)
+})
 check('an ambiguous name is reported per row', () => {
   const result = validateCsvRows(
     [header, ['a@x.com', 'Asha', 'student', '', 'Psychology']],
@@ -409,6 +471,3 @@ check('the template parses back into a valid import against a real tree', () => 
 })
 
 console.log(`\n${passed} department checks passed\n`)
-
-
-

@@ -161,6 +161,18 @@ const fakeAnalyzer = {
       'More lab time please': { score: 1, comparative: 0.25, words: ['please'] },
       'terrible outdated equipment': { score: -5, comparative: -1.67, words: ['terrible', 'outdated'] },
       'excellent teaching and great support': { score: 6, comparative: 1.2, words: ['excellent', 'great'] },
+      // AFINN's measured score for the F-6 complaints, so the fix is asserted
+      // against the lexicon's real verdict rather than a neutral stand-in.
+      'nothing works in the labs, equipment is terrible': {
+        score: -3, comparative: -0.33, words: ['terrible'],
+      },
+      'nothing is ever fixed here': { score: -2, comparative: -0.33, words: ['fixed'] },
+      'nothing but problems with the wifi': {
+        score: -2, comparative: -0.29, words: ['problems'],
+      },
+      'nothing to change, the course is well designed': {
+        score: 2, comparative: 0.22, words: ['well'],
+      },
     }
     return table[text] ?? { score: 0, comparative: 0, words: [] }
   },
@@ -181,6 +193,37 @@ check('other absence-of-problem phrasings are handled too', () => {
     assert.equal(classify(text).label, 'positive', text)
   }
 })
+
+check('REGRESSION: a complaint that starts with "nothing" is not satisfaction', () => {
+  // The verb after the noun phrase was optional, so the pattern reduced to the
+  // bare word `nothing` plus a space and was tested BEFORE the lexicon. The
+  // matched substring was literally "nothing ", and it inverted the verdict on
+  // the most substantive complaints on the form - moving FR-41's gate with it.
+  for (const text of [
+    'nothing works in the labs, equipment is terrible',
+    'nothing is ever fixed here',
+    'nothing but problems with the wifi',
+  ]) {
+    assert.equal(classify(text).label, 'negative', text)
+  }
+})
+
+check('a genuine "nothing to change" is still read as satisfaction', () => {
+  const result = classify('nothing to change, the course is well designed')
+  assert.equal(result.label, 'positive')
+  assert.match(result.reason, /absence of a problem/)
+})
+
+check('REGRESSION: the bare phrases the alternation names are positive, not negative', () => {
+  // "no changes" and "no suggestions" failed the mandatory \s+ and read
+  // negative on the word "no" - the same error mirrored.
+  for (const text of ['no changes', 'No suggestions', 'no changes needed']) {
+    assert.equal(classify(text).label, 'positive', text)
+  }
+})
+
+check('"nothing wrong at all" is not turned into a complaint by the fix', () =>
+  assert.equal(classify('nothing wrong at all').label, 'positive'))
 
 check('non-answers are their own bucket, not neutral', () => {
   // Counting "nil" as neutral would make the headline finding "most feedback is

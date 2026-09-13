@@ -1,5 +1,5 @@
 /**
- * Admin-only direct user provisioning (FR-19 to FR-23).
+ * Staff-only direct user provisioning (FR-19 to FR-23, FR-51).
  *
  * WHY THIS RUNS SERVER-SIDE
  * Creating an auth account requires the Supabase `service_role` key, which
@@ -8,9 +8,17 @@
  * automatically, so unlike the old Vercel function there is no key to copy into a
  * third-party host's dashboard.
  *
- * The client sends its own access token; we verify that token belongs to an
- * ACTIVE ADMIN before doing anything privileged. `verify_jwt` is enabled too, so
- * an unauthenticated request is rejected by the platform before this code runs.
+ * The client sends its own access token; we verify it belongs to an ACTIVE ADMIN or
+ * an ACTIVE HEAD OF DEPARTMENT before doing anything privileged. `verify_jwt` is
+ * enabled too, so an unauthenticated request is rejected by the platform before this
+ * code runs.
+ *
+ * BECAUSE service_role BYPASSES RLS, THIS FILE IS THE ONLY THING SCOPING AN HOD.
+ * Every HOD rule elsewhere in the app is enforced by a policy; account creation
+ * cannot be, because the row does not exist yet and the caller is not the one
+ * writing it. So an HOD's request has its `department_id` OVERWRITTEN with their own
+ * and its role checked against HOD_CREATABLE_ROLES here — a hand-rolled request
+ * cannot widen what the form offers.
  *
  * This keeps the existing function slug for deployment compatibility, but it
  * does not send invitations. Accounts are created with a temporary password
@@ -25,7 +33,7 @@
  * It may also carry a `department_id` (FR-46). The browser resolves the name to an
  * id from the list it already holds for its pickers; this function does not trust
  * that id — it checks the department exists and is not archived, and refuses a
- * student or faculty account that has none. The same rule lives in
+ * student, faculty or HOD account that has none. The same rule lives in
  * src/lib/admin/departmentRules.js for the form, which is where an admin sees it;
  * this is what makes it more than a suggestion.
  *
@@ -35,8 +43,17 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { isEmail, isMissingSapIdColumn, validateSapId } from '../_shared/sapId.ts'
 
+/**
+ * Mirrors the `user_role` enum (0001_schema.sql + 0010_hod_role.sql).
+ *
+ * This list is load-bearing rather than defensive: the auth-sync trigger creates
+ * NO profile row for a role it does not recognise, so an account whose role never
+ * reaches `handle_new_auth_user()` would be half-created — an auth.users row with
+ * no profile. Both lists have to be extended together whenever a role is added.
+ */
 const VALID_ROLES = new Set([
   'admin',
+  'hod',
   'academic_peer',
   'student',
   'employer',
@@ -44,8 +61,18 @@ const VALID_ROLES = new Set([
   'faculty',
 ])
 
-/** FR-46. Mirrors DEPARTMENT_REQUIRED_ROLES in src/lib/admin/departmentRules.js. */
-const DEPARTMENT_REQUIRED_ROLES = new Set(['student', 'faculty'])
+/**
+ * FR-46, FR-50. Mirrors DEPARTMENT_REQUIRED_ROLES in
+ * src/lib/admin/departmentRules.js.
+ *
+ * An HOD is here because the department IS their scope: `hod_department()` returns
+ * NULL without one, and every HOD policy in 0011_hod_scope.sql keys on it, so an
+ * HOD created without a department would silently have no rights at all.
+ */
+const DEPARTMENT_REQUIRED_ROLES = new Set(['student', 'faculty', 'hod'])
+
+/** FR-51. Mirrors HOD_CREATABLE_ROLES in src/lib/constants.js. */
+const HOD_CREATABLE_ROLES = new Set(['student', 'faculty'])
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -106,7 +133,7 @@ Deno.serve(async (req: Request) => {
   })
 
   // ---- authorise the caller ----
-  const caller = await requireActiveAdmin(admin, token)
+  const caller = await requireStaff(admin, token)
   if (!caller.ok) return json({ error: caller.error }, caller.status)
 
   // ---- validate the batch ----
@@ -132,7 +159,7 @@ Deno.serve(async (req: Request) => {
   // report back to a large CSV import.
   const results = []
   for (const entry of users) {
-    results.push(await createOne(admin, entry))
+    results.push(await createOne(admin, entry, caller))
   }
 
   return json({
@@ -143,8 +170,14 @@ Deno.serve(async (req: Request) => {
   })
 })
 
-/** The caller must be a signed-in, ACTIVE admin — not merely authenticated. */
-async function requireActiveAdmin(admin: any, token: string) {
+/**
+ * The caller must be a signed-in, ACTIVE admin or head of department — not merely
+ * authenticated.
+ *
+ * Returns their role and department, because for an HOD those two facts are what
+ * constrain every entry in the batch.
+ */
+async function requireStaff(admin: any, token: string) {
   const { data, error } = await admin.auth.getUser(token)
   if (error || !data?.user) {
     return { ok: false as const, status: 401, error: 'Invalid or expired session.' }
@@ -152,13 +185,22 @@ async function requireActiveAdmin(admin: any, token: string) {
 
   let { data: profile, error: pError } = await admin
     .from('profiles')
-    .select('role, status, removed_at, must_change_password')
+    .select('role, status, removed_at, must_change_password, department_id')
     .eq('id', data.user.id)
     .maybeSingle()
 
-  // Keep direct creation usable during the short window before migration 0006
-  // reaches the project. The migration-aware query is preferred; the legacy
-  // query is only a compatibility path for the old profiles shape.
+  // Keep direct creation usable during the short window before a migration reaches
+  // the project. The migration-aware query is preferred; each fallback is only a
+  // compatibility path for an older profiles shape.
+  if (pError && isMissingDepartmentColumn(pError.message)) {
+    const noDept = await admin
+      .from('profiles')
+      .select('role, status, removed_at, must_change_password')
+      .eq('id', data.user.id)
+      .maybeSingle()
+    profile = noDept.data ? { ...noDept.data, department_id: null } : null
+    pError = noDept.error
+  }
   if (pError && isMissingDirectUserColumn(pError.message)) {
     const legacy = await admin
       .from('profiles')
@@ -166,28 +208,57 @@ async function requireActiveAdmin(admin: any, token: string) {
       .eq('id', data.user.id)
       .maybeSingle()
     profile = legacy.data
-      ? { ...legacy.data, removed_at: null, must_change_password: false }
+      ? { ...legacy.data, removed_at: null, must_change_password: false, department_id: null }
       : null
     pError = legacy.error
   }
 
   if (pError) return { ok: false as const, status: 500, error: pError.message }
-  if (
-    !profile ||
-    profile.role !== 'admin' ||
-    profile.status !== 'active' ||
-    profile.removed_at ||
-    profile.must_change_password
-  ) {
-    return { ok: false as const, status: 403, error: 'Admin access required.' }
+
+  const live =
+    profile &&
+    profile.status === 'active' &&
+    !profile.removed_at &&
+    !profile.must_change_password
+
+  if (!live || (profile.role !== 'admin' && profile.role !== 'hod')) {
+    return {
+      ok: false as const,
+      status: 403,
+      error: 'Administrator or head-of-department access required.',
+    }
   }
-  return { ok: true as const, userId: data.user.id }
+
+  // An HOD's whole scope is their department. Without one there is nothing for
+  // them to add a user to, and the guard that would normally catch it (RLS) does
+  // not apply here — service_role bypasses it.
+  if (profile.role === 'hod' && !profile.department_id) {
+    return {
+      ok: false as const,
+      status: 403,
+      error:
+        'Your head-of-department account has no department assigned, so it cannot ' +
+        'create users. Ask an administrator to set one.',
+    }
+  }
+
+  return {
+    ok: true as const,
+    userId: data.user.id,
+    role: profile.role as string,
+    departmentId: (profile.department_id ?? null) as string | null,
+  }
 }
 
-async function createOne(admin: any, entry: any) {
+async function createOne(
+  admin: any,
+  entry: any,
+  caller: { role: string; departmentId: string | null },
+) {
   const email = String(entry?.email ?? '').trim().toLowerCase()
   const fullName = String(entry?.full_name ?? '').trim()
   const role = String(entry?.role ?? '').trim()
+  const callerIsHod = caller.role === 'hod'
   const suppliedPassword =
     typeof entry?.temporary_password === 'string' ? entry.temporary_password : ''
 
@@ -196,6 +267,18 @@ async function createOne(admin: any, entry: any) {
   }
   if (!VALID_ROLES.has(role)) {
     return { email, status: 'failed', reason: `Unknown role "${role}".` }
+  }
+  // FR-51. Checked per entry rather than once for the batch, so a CSV that mixes
+  // permitted and forbidden roles reports the offending rows instead of failing
+  // whole.
+  if (callerIsHod && !HOD_CREATABLE_ROLES.has(role)) {
+    return {
+      email,
+      status: 'failed',
+      reason:
+        `A head of department can only create ${[...HOD_CREATABLE_ROLES].join(' and ')} ` +
+        `accounts, not "${role}".`,
+    }
   }
   if (suppliedPassword && (suppliedPassword.length < 8 || suppliedPassword.length > 72)) {
     return {
@@ -217,14 +300,21 @@ async function createOne(admin: any, entry: any) {
       return {
         email,
         status: 'failed',
-        reason: `SAP ID ${sapId} already belongs to ${clash.owner}.`,
+        reason: 'That SAP ID is already in use.',
       }
     }
   }
 
-  // FR-46. Required for students and faculty, optional for everyone else.
-  const departmentId =
-    typeof entry?.department_id === 'string' ? entry.department_id.trim() : ''
+  // FR-46. Required for students, faculty and HODs; optional for everyone else.
+  //
+  // An HOD's request is OVERWRITTEN rather than validated: service_role bypasses
+  // RLS, so this assignment is the only thing keeping an HOD from provisioning
+  // into someone else's department (FR-51).
+  const departmentId = callerIsHod
+    ? (caller.departmentId ?? '')
+    : typeof entry?.department_id === 'string'
+      ? entry.department_id.trim()
+      : ''
 
   if (departmentId && !UUID_PATTERN.test(departmentId)) {
     return { email, status: 'failed', reason: 'Department is not a valid identifier.' }
@@ -233,7 +323,10 @@ async function createOne(admin: any, entry: any) {
     return {
       email,
       status: 'failed',
-      reason: `A ${role.replace('_', ' ')} account must be given a department.`,
+      reason:
+        role === 'hod'
+          ? 'A head-of-department account must be given the department it heads.'
+          : `A ${role.replace('_', ' ')} account must be given a department.`,
     }
   }
   if (departmentId) {
@@ -245,29 +338,41 @@ async function createOne(admin: any, entry: any) {
     if (!found.department) {
       return { email, status: 'failed', reason: 'That department no longer exists.' }
     }
-    if (found.department.is_active === false) {
+    // An HOD's own department is exempt: their department was archived by an admin
+    // while they still administer it, and refusing here would strand them.
+    if (
+      (found.department.is_active === false ||
+        found.department.streams?.is_active === false) &&
+      !callerIsHod
+    ) {
       return {
         email,
         status: 'failed',
-        reason: `The department "${found.department.name}" is archived, so new accounts cannot be added to it.`,
+        reason:
+          found.department.streams?.is_active === false
+            ? `The stream containing "${found.department.name}" is archived, so new accounts cannot be added to it.`
+            : `The department "${found.department.name}" is archived, so new accounts cannot be added to it.`,
       }
     }
   }
 
   const temporaryPassword = suppliedPassword || generateTemporaryPassword()
 
-  // The auth sync trigger reads this metadata to create the profile row.
-  // Without a valid role here it deliberately creates none, which is why the
-  // role is validated above rather than defaulted.
+  // The auth sync trigger trusts only this server-controlled app metadata for
+  // authorisation. Display fields remain in user_metadata because they are not an
+  // authorisation boundary and the user may legitimately see them.
   const { data, error } = await admin.auth.admin.createUser({
     email,
     password: temporaryPassword,
     email_confirm: true,
-    user_metadata: {
+    app_metadata: {
+      provisioned_by: 'invite-users-v1',
       role,
+      ...(departmentId ? { department_id: departmentId } : {}),
+    },
+    user_metadata: {
       full_name: fullName,
       ...(sapId ? { sap_id: sapId } : {}),
-      ...(departmentId ? { department_id: departmentId } : {}),
     },
   })
 
@@ -310,7 +415,7 @@ async function createOne(admin: any, entry: any) {
 async function findDepartment(admin: any, departmentId: string) {
   const { data, error } = await admin
     .from('departments')
-    .select('id, name, is_active')
+    .select('id, name, is_active, streams!inner ( is_active )')
     .eq('id', departmentId)
     .maybeSingle()
 
@@ -327,13 +432,13 @@ async function findDepartment(admin: any, departmentId: string) {
 /**
  * The unique index on profiles.sap_id would reject a clash anyway, but it would
  * do so from inside the auth.users insert — surfacing to the admin as a generic
- * "database error creating new user". Checking first buys a sentence that names
- * the number and who already holds it.
+ * "database error creating new user". Checking first preserves an actionable but
+ * non-enumerating duplicate message.
  */
 async function findSapIdOwner(admin: any, sapId: string) {
   const { data, error } = await admin
     .from('profiles')
-    .select('email')
+    .select('id')
     .eq('sap_id', sapId)
     .maybeSingle()
 
@@ -344,7 +449,7 @@ async function findSapIdOwner(admin: any, sapId: string) {
         : error.message,
     }
   }
-  return { owner: data?.email ?? null }
+  return { owner: data?.id ?? null }
 }
 
 /**
@@ -386,12 +491,16 @@ async function recoverLegacyInvite(
   const { error: updateAuthError } = await admin.auth.admin.updateUserById(profile.id, {
     password: account.temporaryPassword,
     email_confirm: true,
+    app_metadata: {
+      ...(existingUser.app_metadata ?? {}),
+      provisioned_by: 'invite-users-v1',
+      role: account.role,
+      ...(account.departmentId ? { department_id: account.departmentId } : {}),
+    },
     user_metadata: {
       ...(existingUser.user_metadata ?? {}),
-      role: account.role,
       full_name: account.fullName,
       ...(account.sapId ? { sap_id: account.sapId } : {}),
-      ...(account.departmentId ? { department_id: account.departmentId } : {}),
     },
   })
   if (updateAuthError) {

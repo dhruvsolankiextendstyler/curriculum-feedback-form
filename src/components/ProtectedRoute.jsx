@@ -1,15 +1,23 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { homePathFor, isAdmin } from '../lib/constants'
+import { homePathFor, isAdmin, isStaff } from '../lib/constants'
 
 /**
- * FR-5: route gate. `requireAdmin` restricts a branch to administrators.
+ * FR-5: route gate.
+ *
+ * `requireStaff` admits an administrator or a head of department — the admin panel
+ * as a whole. `requireAdmin` is the narrower gate, for the branches an HOD has no
+ * business in at all (managing departments themselves).
  *
  * This is convenience, not security — every table is protected by RLS
- * (0002_rls.sql), so a user who forges their way to /admin still cannot read
- * or write anything their role does not allow.
+ * (0002_rls.sql, 0011_hod_scope.sql), so a user who forges their way to /admin
+ * still cannot read or write anything their role does not allow.
  */
-export default function ProtectedRoute({ children, requireAdmin = false }) {
+export default function ProtectedRoute({
+  children,
+  requireAdmin = false,
+  requireStaff = false,
+}) {
   const { session, profile, role, loading, profileError, signOut } = useAuth()
   const location = useLocation()
 
@@ -77,11 +85,21 @@ export default function ProtectedRoute({ children, requireAdmin = false }) {
     return <Navigate to="/set-password" replace />
   }
 
+  const staffOnly = requireAdmin || requireStaff
+
   if (requireAdmin && !isAdmin(role)) {
+    // An HOD landing here has a panel of their own to go back to, so send them to
+    // it rather than to the respondent side.
     return <Navigate to={homePathFor(role)} replace />
   }
 
-  if (!requireAdmin && isAdmin(role)) {
+  if (requireStaff && !isStaff(role)) {
+    return <Navigate to={homePathFor(role)} replace />
+  }
+
+  // Staff have no feedback form (`forms_respondent_only`), so the respondent
+  // branch would render an error rather than a form.
+  if (!staffOnly && isStaff(role)) {
     return <Navigate to="/admin" replace />
   }
 

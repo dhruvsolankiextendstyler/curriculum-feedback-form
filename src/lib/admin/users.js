@@ -1,8 +1,9 @@
 import { supabase } from '../supabase'
 import { describeFunctionError } from '../functionError'
 import { SAP_ID_HINT, validateSapId } from '../identifier'
+import { isStaff, ROLE_LABELS } from '../constants'
 import { chunk } from './csv'
-import { departmentRequiredFor } from './departmentRules'
+import { departmentIsAssignable, departmentRequiredFor } from './departmentRules'
 import { sortUserRows } from './userSort'
 
 export { sortUserRows } from './userSort'
@@ -153,8 +154,25 @@ const emailsOf = (rows) => (rows ?? []).map((row) => row.email.toLowerCase())
  * The role travels alongside the department so the student-and-faculty
  * requirement (FR-46) can be re-checked here as well as in the form — the edit
  * panel changes both in one submit, so it always has both to give.
+ *
+ * `asHod` mirrors what the profile guard and RLS already refuse for a head of
+ * department (0011_hod_scope.sql). The database is the boundary; this is what turns
+ * its refusal into a sentence before the round trip.
  */
-export async function updateUser(userId, { full_name, role, sap_id, department_id }) {
+export async function updateUser(
+  userId,
+  { full_name, role, sap_id, department_id },
+  { asHod = false, departments = null, streams = [], currentDepartmentId = undefined } = {},
+) {
+  if (asHod && role !== undefined && isStaff(role)) {
+    throw new Error(
+      'Only an administrator can appoint an administrator or a head of department.',
+    )
+  }
+  if (asHod && department_id !== undefined) {
+    throw new Error('A head of department cannot move an account to another department.')
+  }
+
   const patch = {}
   if (full_name !== undefined) patch.full_name = full_name.trim() || null
   if (role !== undefined) patch.role = role
@@ -167,19 +185,54 @@ export async function updateUser(userId, { full_name, role, sap_id, department_i
   if (department_id !== undefined) {
     const value = department_id || null
     if (!value && departmentRequiredFor(role)) {
-      throw new Error('Students and faculty must be assigned a department.')
+      throw new Error(`${ROLE_LABELS[role] ?? 'This role'} must be assigned a department.`)
+    }
+    // FR-48: archiving takes a department out of the pickers, and the other two
+    // write paths (the Edge Function and the CSV validator) already refuse it.
+    // Only a *change* into an archived department is refused — a blanket
+    // is_active test would block renaming someone already filed there, which
+    // FR-48 requires to keep working. No trigger backs this, so it is enforced
+    // wherever the list is available.
+    if (value && departments && currentDepartmentId !== undefined) {
+      const moving = value !== (currentDepartmentId || null)
+      const target = departments.find((row) => row.id === value)
+      if (moving && target && !departmentIsAssignable(target, streams)) {
+        const parent = streams.find((row) => row.id === target.stream_id)
+        throw new Error(
+          parent?.is_active === false
+            ? `The ${parent.name} stream is archived, so accounts cannot be moved into "${target.name}". Restore the stream on the Departments page, or choose another.`
+            : `"${target.name}" is archived, so accounts cannot be moved into it. Restore it on the Departments page, or choose another.`,
+        )
+      }
     }
     patch.department_id = value
   }
 
   if (Object.keys(patch).length === 0) return
 
-  const { error } = await supabase.from('profiles').update(patch).eq('id', userId)
+  // `.select()` for the same reason the three calls below have it: RLS does not
+  // raise on an UPDATE it filters out, it matches no rows and returns success.
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(patch)
+    .eq('id', userId)
+    .select('id')
+    .maybeSingle()
+
   if (error) throw new Error(translateUserError(error))
+  if (!data) {
+    throw new Error(
+      'Those changes were not saved. Your access may have changed — reload the page and try again.',
+    )
+  }
 }
 
 /** Temporarily blocks a current account without filing it as removed. */
-export async function setUserStatus(userId, status) {
+export async function setUserStatus(userId, status, { asHod = false } = {}) {
+  if (asHod) {
+    throw new Error('Only an administrator can change account status.')
+  }
+
   const { data, error } = await supabase
     .from('profiles')
     .update({ status })

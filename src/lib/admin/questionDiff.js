@@ -36,14 +36,14 @@ export function optionsChanged(currentOptions = [], nextOptions = []) {
  * Compares an option the way it will actually be stored.
  *
  * The label is compared raw (rewording a choice IS a change), but the value is
- * compared through the same slug function `insertVersion` writes with. Otherwise
- * a freshly added option — whose draft `value` is still empty — would look
- * different from an identical stored row purely because of when the slug is
- * applied.
+ * compared through `storedOptionValue`, the same resolution `insertVersion`
+ * writes with. Otherwise a freshly added option — whose draft `value` is still
+ * empty — would look different from an identical stored row purely because of
+ * when the slug is applied.
  */
 const toComparable = (o) => ({
   label: normaliseText(o.label),
-  value: slugifyOptionValue(o.value || o.label),
+  value: storedOptionValue(o),
 })
 
 /** Trailing/leading whitespace is not a meaningful edit. */
@@ -81,12 +81,46 @@ export function slugifyOptionValue(label) {
 }
 
 /**
+ * The value an option will actually be stored with.
+ *
+ * An option that already exists keeps the value it was stored with, verbatim.
+ * Only a new option — whose draft `value` is empty, which is the only shape the
+ * editor can produce — gets a slug derived from its label.
+ *
+ * This is load-bearing rather than tidy. `answers.value_options` holds these
+ * strings and is frozen once answered (`question_options_immutable`), while the
+ * seed inserted `value = label` ('PG I', not 'pg_i'). Re-deriving the slug on
+ * every version would rewrite the new version's values out from under those
+ * stored answers: the analytics group by value, so one human choice would split
+ * into two chart rows, and `validateAnswer` would lock every pre-edit respondent
+ * out of editing their own submission (FR-31, FR-56).
+ *
+ * Rewording a label therefore keeps the old value on purpose. The label is what
+ * a respondent reads; the value is the join key their answer already holds.
+ */
+export function storedOptionValue(option) {
+  const existing = typeof option?.value === 'string' ? option.value.trim() : ''
+  return existing || slugifyOptionValue(option?.label)
+}
+
+/**
  * A question_key for a brand-new question: stable, unique within its form, and
  * readable in exports. Falls back to a timestamp when the text slugifies to
  * nothing (e.g. non-Latin script), and de-duplicates against existing keys.
+ *
+ * `prefix` namespaces a DEPARTMENT question's key ('computer_science__lab_safety').
+ * That is not cosmetic: `analytics_distribution` and
+ * `analytics_choice_distribution` group by (stakeholder, form, question_key, scale)
+ * with no question id in the key, so two departments both writing "Lab safety" on
+ * the student form would have their Likert bars silently pooled into one chart.
+ * A college-wide question passes no prefix and keeps its bare key, so nothing that
+ * already exists changes.
  */
-export function deriveQuestionKey(text, existingKeys = []) {
-  const base = slugifyOptionValue(text) || `q_${Date.now().toString(36)}`
+export function deriveQuestionKey(text, existingKeys = [], prefix = '') {
+  const slug = slugifyOptionValue(text) || `q_${Date.now().toString(36)}`
+  const namespace = slugifyOptionValue(prefix)
+  const base = namespace ? `${namespace}__${slug}` : slug
+
   const taken = new Set(existingKeys)
   if (!taken.has(base)) return base
 
@@ -124,7 +158,7 @@ export function validateQuestionDraft(draft) {
     errors.options = 'Only dropdown and multi-select questions take options.'
   }
   if (needsOptions) {
-    const values = options.map((o) => slugifyOptionValue(o.value || o.label))
+    const values = options.map(storedOptionValue)
     if (new Set(values).size !== values.length) {
       errors.options = 'Two options resolve to the same stored value.'
     }

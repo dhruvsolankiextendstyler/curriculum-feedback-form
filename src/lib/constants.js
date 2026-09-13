@@ -1,6 +1,8 @@
-// Mirrors the `user_role` enum in supabase/migrations/0001_schema.sql.
+// Mirrors the `user_role` enum in supabase/migrations/0001_schema.sql, plus `hod`
+// from 0010_hod_role.sql.
 export const ROLES = {
   ADMIN: 'admin',
+  HOD: 'hod',
   ACADEMIC_PEER: 'academic_peer',
   STUDENT: 'student',
   EMPLOYER: 'employer',
@@ -10,6 +12,7 @@ export const ROLES = {
 
 export const ROLE_LABELS = {
   [ROLES.ADMIN]: 'Administrator',
+  [ROLES.HOD]: 'Head of Department',
   [ROLES.ACADEMIC_PEER]: 'Academic Peer',
   [ROLES.STUDENT]: 'Student',
   [ROLES.EMPLOYER]: 'Employer / Industry Expert',
@@ -17,6 +20,10 @@ export const ROLE_LABELS = {
   [ROLES.FACULTY]: 'Faculty',
 }
 
+/**
+ * The five roles that have a feedback form. Staff do not — `forms_respondent_only`
+ * in 0011_hod_scope.sql refuses a form for `admin` or `hod` at the database level.
+ */
 export const RESPONDENT_ROLES = [
   ROLES.ACADEMIC_PEER,
   ROLES.STUDENT,
@@ -25,11 +32,27 @@ export const RESPONDENT_ROLES = [
   ROLES.FACULTY,
 ]
 
+/** Everything an administrator may assign, in the order the pickers show it. */
+export const ASSIGNABLE_ROLES = [ROLES.ADMIN, ROLES.HOD, ...RESPONDENT_ROLES]
+
+/**
+ * What an HOD may create (FR-51). Narrower than ASSIGNABLE_ROLES on purpose: an
+ * HOD administers the people who belong to their department, and cannot appoint a
+ * peer or a superior. Mirrored in supabase/functions/invite-users/index.ts and in
+ * the profile guard, so the browser is not the thing enforcing it.
+ */
+export const HOD_CREATABLE_ROLES = [ROLES.STUDENT, ROLES.FACULTY]
+
+/** Global administrator. An HOD is deliberately NOT one. */
 export const isAdmin = (role) => role === ROLES.ADMIN
+/** Administrator of one department. */
+export const isHod = (role) => role === ROLES.HOD
+/** May reach the admin panel at all — an admin or an HOD. */
+export const isStaff = (role) => isAdmin(role) || isHod(role)
 export const isRespondent = (role) => RESPONDENT_ROLES.includes(role)
 
 // FR-7: where a user lands after signing in.
-export const homePathFor = (role) => (isAdmin(role) ? '/admin' : '/feedback')
+export const homePathFor = (role) => (isStaff(role) ? '/admin' : '/feedback')
 
 /**
  * Sanitise a post-login redirect target.

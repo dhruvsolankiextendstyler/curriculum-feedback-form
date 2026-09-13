@@ -17,6 +17,27 @@ export async function loadActiveCycle() {
   return data
 }
 
+/**
+ * One cycle by id.
+ *
+ * A response belongs to the cycle it was submitted in, which is not necessarily
+ * the active one: FR-16 makes a past cycle read-only, and FR-17 lets its owner
+ * still open it. Judging that by the ACTIVE cycle tells a respondent editing
+ * last year's feedback that it closes next November.
+ */
+export async function loadCycleById(cycleId) {
+  if (!cycleId) return null
+
+  const { data, error } = await supabase
+    .from('academic_cycles')
+    .select('id, label, opens_at, closes_at')
+    .eq('id', cycleId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data
+}
+
 export function cycleIsOpen(cycle) {
   if (!cycle) return false
   const now = Date.now()

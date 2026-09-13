@@ -27,9 +27,9 @@ import { ROLE_LABELS } from '../lib/constants'
  *
  * A caveat is attached to any number that could be misread: the faculty 4-point
  * scale, the non-scoring options excluded from averages, questions whose
- * answers span reworded variants, the program filter being meaningful only
- * for students, and the department filter reaching only as far back as the
- * responses that were stamped with one.
+ * answers span reworded variants, the program filter spanning four of the five
+ * forms rather than students alone, and the department filter reaching only as
+ * far back as the responses that were stamped with one.
  */
 
 const TABS = [
@@ -176,8 +176,10 @@ export default function Analytics() {
         </div>
         {filters.program && (
           <p className="muted small">
-            Only the student form asks for a program, so this filter hides every
-            other stakeholder&rsquo;s responses.
+            Four of the five forms ask for a program, so this slice can hold
+            students, faculty, alumni and academic peers &mdash; only employers are
+            excluded. Check the Stakeholder column before reporting it as a
+            student figure.
           </p>
         )}
         {(filters.streamId || filters.departmentId) && (
@@ -308,7 +310,7 @@ function OverviewTab({ filters }) {
             rows={totals.byProgram}
             nameOf={(r) => r.program}
             countOf={(r) => r.responseCount}
-            empty="No responses carry a program. Only the student form asks for one."
+            empty="No responses carry a program. Every form except the employer one asks for one."
           />
           <Breakdown
             title="By course"
@@ -404,7 +406,13 @@ function RatingsTab({ filters }) {
                       <th>Normalised</th>
                       <th>Scored</th>
                       <th>N/A</th>
-                      <th>People</th>
+                      {/* `n_respondents` is count(distinct response_id), not
+                          distinct people: one person submits for several
+                          courses, so this is always >= the Overview tile's
+                          People figure. Naming it "People" put two different
+                          numbers under one word and overstated the human sample
+                          behind every average (FR-36). */}
+                      <th>Responses</th>
                       <th />
                     </tr>
                   </thead>
@@ -434,7 +442,18 @@ function RatingsTab({ filters }) {
                             <button
                               type="button"
                               className="linklike"
-                              onClick={() => setSelected(selected === id ? null : row.question_key)}
+                              // Compared against what state actually holds. The
+                              // composite `id` can never equal a bare
+                              // question_key, so the `? null` arm was dead code
+                              // and Hide did nothing (FR-38). Storing the
+                              // composite instead would break
+                              // DistributionChart, which filters on
+                              // question_key alone.
+                              onClick={() =>
+                                setSelected(
+                                  selected === row.question_key ? null : row.question_key,
+                                )
+                              }
                             >
                               {selected === row.question_key ? 'Hide' : 'Distribution'}
                             </button>

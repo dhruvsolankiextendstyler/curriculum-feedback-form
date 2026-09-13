@@ -26,13 +26,13 @@ export default function FeedbackHome() {
     const cycle = await loadActiveCycle()
     let form = null
     try {
-      form = (await loadForm(role)).form
+      form = (await loadForm(role, profile?.department_id ?? null)).form
     } catch {
       form = null // no form configured for this role; reported below
     }
     const submissions = cycle && user ? await loadMySubmissions(user.id, cycle.id) : []
     return { cycle, form, submissions }
-  }, [role, user])
+  }, [role, profile?.department_id, user])
 
   useEffect(() => {
     let active = true

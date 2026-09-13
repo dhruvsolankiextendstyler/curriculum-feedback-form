@@ -1,6 +1,6 @@
 // Explicit .js extension: Vite resolves extensionless paths, plain Node (used by
 // the check scripts) does not.
-import { ROLES } from '../constants.js'
+import { ROLES, ROLE_LABELS } from '../constants.js'
 import { isEmail, validateSapId } from '../identifier.js'
 import { departmentRequiredFor, resolveDepartment } from './departmentRules.js'
 
@@ -49,6 +49,10 @@ const HEADER_ALIASES = {
 const ROLE_ALIASES = {
   admin: ROLES.ADMIN,
   administrator: ROLES.ADMIN,
+  hod: ROLES.HOD,
+  'head of department': ROLES.HOD,
+  'head of dept': ROLES.HOD,
+  'department head': ROLES.HOD,
   academic_peer: ROLES.ACADEMIC_PEER,
   'academic peer': ROLES.ACADEMIC_PEER,
   peer: ROLES.ACADEMIC_PEER,
@@ -86,27 +90,45 @@ export function mapHeaders(headers) {
  * @param {string[][]} rows including the header row
  * @param {string[]|{emails?: string[], sapIds?: string[]}} existing already-registered
  *   identifiers. A bare array is read as emails, which is what it used to be.
- * @param {{streams?: object[], departments?: object[]}|null} tree the department
- *   list to resolve the `stream` and `department` columns against (FR-47).
+ * @param {{streams?: object[], departments?: object[], forceDepartmentId?: string|null,
+ *   allowedRoles?: string[]|null}|null} tree the department list to resolve the
+ *   `stream` and `department` columns against (FR-47).
+ *
  *   `null` means "no department data available" — the columns are ignored and the
- *   student/faculty requirement is not applied. That is what keeps a caller from
- *   before departments existed working, and it is also the honest answer in the
- *   window before migration 0008 reaches a project.
- * @returns {{ valid: object[], invalid: object[], headerError: string|null }}
+ *   department requirement is not applied. That is what keeps a caller from before
+ *   departments existed working, and it is also the honest answer in the window
+ *   before migration 0008 reaches a project.
+ *
+ *   `forceDepartmentId` pins every row to one department and IGNORES the two
+ *   columns rather than trusting them: a head of department imports into their own
+ *   department and nowhere else (FR-51). `allowedRoles` narrows which roles the
+ *   caller may create, so an HOD's file cannot smuggle in an admin.
+ * @returns {{ valid: object[], invalid: object[], headerError: string|null,
+ *   ignoredColumns: string[] }}
  */
 export function validateCsvRows(rows, existing = {}, tree = null) {
-  const nonEmpty = rows.filter((r) => r.some((cell) => String(cell ?? '').trim() !== ''))
+  // The physical line each row came from is captured BEFORE the blank ones are
+  // dropped, and it is what every message below quotes. Numbering the filtered
+  // array instead shifts every later row by one per blank line, cumulatively —
+  // and "Line 2" is the only handle the admin has precisely when the email cell
+  // is blank and cannot be printed (FR-23). Callers must therefore hand over
+  // every physical line, blanks included.
+  const nonEmpty = rows
+    .map((row, index) => ({ row, line: index + 1 }))
+    .filter(({ row }) => row.some((cell) => String(cell ?? '').trim() !== ''))
+
   if (nonEmpty.length === 0) {
-    return { valid: [], invalid: [], headerError: 'The file is empty.' }
+    return { valid: [], invalid: [], headerError: 'The file is empty.', ignoredColumns: [] }
   }
 
-  const columns = mapHeaders(nonEmpty[0])
+  const columns = mapHeaders(nonEmpty[0].row)
   if (columns.email === undefined) {
     return {
       valid: [],
       invalid: [],
       headerError:
         'No "email" column found. Expected headers: email, full_name, role, sap_id (optional), temporary_password (optional).',
+      ignoredColumns: [],
     }
   }
   if (columns.role === undefined) {
@@ -115,6 +137,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
       invalid: [],
       headerError:
         'No "role" column found. Expected headers: email, full_name, role, sap_id (optional), temporary_password (optional).',
+      ignoredColumns: [],
     }
   }
 
@@ -123,13 +146,21 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
   const takenSapIds = new Set(existingSapIds.map((id) => String(id).toUpperCase()))
   const streams = tree?.streams ?? []
   const departments = tree?.departments ?? []
+  // A pinned department overrides the columns rather than reading them, so a head
+  // of department's file cannot land anyone outside their own department.
+  const forcedDepartmentId = tree?.forceDepartmentId ?? null
+  const allowedRoles = tree?.allowedRoles ?? null
+  const resolveColumns = Boolean(tree) && !forcedDepartmentId
+  const ignoredColumns =
+    forcedDepartmentId
+      ? ['stream', 'department'].filter((field) => columns[field] !== undefined)
+      : []
   const seen = new Set()
   const seenSapIds = new Set()
   const valid = []
   const invalid = []
 
-  nonEmpty.slice(1).forEach((row, i) => {
-    const lineNo = i + 2 // 1-based, and the header occupies line 1
+  nonEmpty.slice(1).forEach(({ row, line: lineNo }) => {
     const email = String(row[columns.email] ?? '').trim().toLowerCase()
     const fullName =
       columns.full_name !== undefined
@@ -154,6 +185,16 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
       })
       return
     }
+    if (allowedRoles && !allowedRoles.includes(role)) {
+      invalid.push({
+        line: lineNo,
+        email,
+        reason: `You cannot create ${ROLE_LABELS[role] ?? role} accounts. Allowed: ${allowedRoles
+          .map((r) => ROLE_LABELS[r] ?? r)
+          .join(', ')}.`,
+      })
+      return
+    }
     if (
       temporaryPassword &&
       (temporaryPassword.length < 8 || temporaryPassword.length > 72)
@@ -168,8 +209,8 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
 
     // FR-47. Skipped entirely when no department list was supplied, so a caller
     // that predates departments behaves exactly as it used to.
-    let departmentId = null
-    if (tree) {
+    let departmentId = forcedDepartmentId
+    if (resolveColumns) {
       const check = checkDepartmentCell(
         {
           stream: columns.stream !== undefined ? row[columns.stream] : '',
@@ -233,7 +274,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
     })
   })
 
-  return { valid, invalid, headerError: null }
+  return { valid, invalid, headerError: null, ignoredColumns }
 }
 
 /**
@@ -262,6 +303,18 @@ function checkDepartmentCell(cells, role, { streams, departments }) {
     return {
       ok: false,
       reason: `"${department.name}" is archived. Restore it on the Departments page, or name another.`,
+    }
+  }
+
+  // An archived STREAM leaves its departments `is_active = true` — there is no
+  // cascade — so this is the only place the pinned-out state is enforced for the
+  // CSV path. The add-user form already hides them, and the shared confirm text
+  // promises archiving a stream takes it out of the pickers.
+  const stream = streams.find((row) => row.id === department?.stream_id)
+  if (stream && stream.is_active === false) {
+    return {
+      ok: false,
+      reason: `The ${stream.name} stream is archived, so "${department.name}" cannot take new accounts. Restore the stream on the Departments page, or name another department.`,
     }
   }
 

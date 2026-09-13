@@ -40,10 +40,32 @@ const NON_ANSWERS = new Set([
  * Satisfaction expressed as the absence of a problem. Checked before the
  * lexicon, because every one of these scores negative on it.
  */
-const NO_PROBLEM = /\bno\s+(?:major\s+|significant\s+|real\s+|serious\s+)?(?:complaints?|issues?|problems?|concerns?|objections?|drawbacks?|shortcomings?|difficult(?:y|ies))\b/i
+const NO_PROBLEM = /\b(?:no|nothing)\s+(?:major\s+|significant\s+|real\s+|serious\s+)?(?:complaints?|issues?|problems?|concerns?|objections?|drawbacks?|shortcomings?|difficult(?:y|ies)|wrong)\b/i
 
-/** The same idea the other way round. */
-const NOTHING_TO_CHANGE = /\b(?:nothing|no\s+changes?|no\s+suggestions?)\s+(?:to\s+)?(?:change|improve|add|suggest|report)?\b/i
+/**
+ * The same idea the other way round: "nothing to change", "no changes needed".
+ *
+ * The verb is MANDATORY. Made optional, the whole alternation collapses to the
+ * bare word `nothing` followed by a space — and because this is tested before
+ * the lexicon, "nothing works in the labs, equipment is terrible" was filed as
+ * satisfaction with the matched substring being literally "nothing ". That
+ * inverts sentiment in the direction this file says matters most, and it moves
+ * FR-41's gate: prefixing one complaint with the word took a 10-answer bag from
+ * a 0.300 negative share to 0.200 and switched the `negative_sentiment` insight
+ * off entirely.
+ */
+const NOTHING_TO_CHANGE = /\b(?:nothing|no\s+changes?|no\s+suggestions?)\s+(?:to\s+)?(?:change|improve|add|suggest|report|mention)\b/i
+
+/**
+ * The bare noun phrases, matched against the WHOLE answer.
+ *
+ * Their own alternatives because the mandatory verb above rightly refuses them,
+ * and left to the lexicon they read NEGATIVE on the word "no" — the same error,
+ * mirrored. As a complete answer they carry only one meaning; inside a longer
+ * sentence ("no changes were made to the syllabus for three years") they do not,
+ * which is why this is anchored and `NOTHING_TO_CHANGE` is not.
+ */
+const NOTHING_ALONE = /^no\s+(?:changes?|suggestions?|improvements?|recommendations?)(?:\s+needed|\s+required)?$/i
 
 export const POSITIVE_AT = 2
 export const NEGATIVE_AT = -1
@@ -77,7 +99,11 @@ export function createClassifier(analyzer) {
       return { label: 'none', score: 0, comparative: 0, words: [], reason: 'Too short to read.' }
     }
 
-    if (NO_PROBLEM.test(trimmed) || NOTHING_TO_CHANGE.test(trimmed)) {
+    if (
+      NO_PROBLEM.test(trimmed) ||
+      NOTHING_TO_CHANGE.test(trimmed) ||
+      NOTHING_ALONE.test(normalised)
+    ) {
       return {
         label: 'positive',
         score: POSITIVE_AT,

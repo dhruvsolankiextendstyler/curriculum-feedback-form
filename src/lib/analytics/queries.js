@@ -50,8 +50,14 @@ function describeRpcError(error, fn) {
   const code = error.code ?? ''
   const message = error.message ?? 'The analytics query failed.'
 
-  if (code === '42501' || /admin access is required/i.test(message)) {
-    return 'Admin access is required to view analytics.'
+  if (code === '42501' || /access is required/i.test(message)) {
+    // The server's own sentence is passed through. Rewriting it to "Admin
+    // access is required" named the one role that cannot be the cause — a real
+    // admin passes the guard, and ProtectedRoute has already checked it. The
+    // actual live case is a head of department with no department: they clear
+    // the front-end staff gate but SQL `is_staff()` is false without one, so
+    // the department hint is appended rather than the cause being guessed at.
+    return `${message} A head of department also needs a department assigned — analytics are scoped to it.`
   }
   if (code === '42883' || code === 'PGRST202' || /could not find the function/i.test(message)) {
     return `The analytics functions on this database do not match this build. Run supabase/migrations/0005_analytics.sql and 0008_departments.sql, then reload. (missing: ${fn})`
