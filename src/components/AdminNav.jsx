@@ -13,7 +13,7 @@ const TABS = [
   { to: '/admin', label: 'Dashboard', end: true },
   { to: '/admin/users', label: 'Users' },
   { to: '/admin/departments', label: 'Departments', adminOnly: true },
-  { to: '/admin/questions', label: 'Questions' },
+  { to: '/admin/forms', label: 'Forms' },
   { to: '/admin/cycles', label: 'Cycles' },
   { to: '/admin/analytics', label: 'Analytics' },
 ]

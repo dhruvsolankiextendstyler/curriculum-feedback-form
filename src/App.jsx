@@ -115,8 +115,10 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      {/* The section is called Forms. It was /admin/questions until the rename,
+          and an admin who bookmarked that is sent on rather than 404'd. */}
       <Route
-        path="/admin/questions"
+        path="/admin/forms"
         element={
           <ProtectedRoute requireStaff>
             <Layout>
@@ -125,6 +127,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/admin/questions" element={<Navigate to="/admin/forms" replace />} />
       <Route
         path="/admin/cycles"
         element={

@@ -7,13 +7,26 @@ import { MAX_LONG_TEXT, MAX_SHORT_TEXT } from '../lib/validation'
  * with errors announced via aria-describedby + aria-invalid so screen readers
  * get them too (NFR-7).
  */
-export default function QuestionField({ question, value, error, disabled, onChange }) {
+export default function QuestionField({
+  question,
+  value,
+  error,
+  disabled,
+  locked = false,
+  lockHint = null,
+  onChange,
+}) {
   const fieldId = `q-${question.versionId}`
   const errorId = `${fieldId}-error`
-  const describedBy = error ? errorId : undefined
+  const hintId = `${fieldId}-hint`
+  // Both, when both apply: a locked field can still be flagged, and dropping the
+  // hint from the description would leave "why can't I type here" unanswered.
+  const describedBy = [error ? errorId : null, locked && lockHint ? hintId : null]
+    .filter(Boolean)
+    .join(' ') || undefined
 
   return (
-    <div className={`field${error ? ' field-invalid' : ''}`}>
+    <div className={`field${error ? ' field-invalid' : ''}${locked ? ' field-locked' : ''}`}>
       <FieldLabel question={question} fieldId={fieldId} />
 
       <Control
@@ -21,10 +34,17 @@ export default function QuestionField({ question, value, error, disabled, onChan
         fieldId={fieldId}
         value={value}
         disabled={disabled}
+        locked={locked}
         describedBy={describedBy}
         invalid={Boolean(error)}
         onChange={onChange}
       />
+
+      {locked && lockHint && (
+        <p className="field-hint" id={hintId}>
+          {lockHint}
+        </p>
+      )}
 
       {error && (
         <p className="field-error" id={errorId} role="alert">
@@ -67,8 +87,18 @@ function FieldLabel({ question, fieldId }) {
   )
 }
 
-function Control({ question, fieldId, value, disabled, describedBy, invalid, onChange }) {
+/**
+ * `locked` is a field the account answers for itself (see lib/prefill.js).
+ *
+ * Text inputs get `readOnly` rather than `disabled`: a read-only input keeps its
+ * normal contrast, stays focusable and is still announced with its value, so a
+ * respondent can read back the name being submitted on their behalf. Controls
+ * with no read-only mode fall back to `disabled`. Either way the submitted value
+ * comes from React state, not the DOM, so nothing is lost on save.
+ */
+function Control({ question, fieldId, value, disabled, locked, describedBy, invalid, onChange }) {
   const common = { disabled, 'aria-describedby': describedBy, 'aria-invalid': invalid || undefined }
+  const lockedText = locked ? { readOnly: true, className: 'locked' } : null
 
   switch (question.type) {
     case 'rating':
@@ -79,6 +109,7 @@ function Control({ question, fieldId, value, disabled, describedBy, invalid, onC
           value={value}
           onChange={onChange}
           {...common}
+          disabled={disabled || locked}
         />
       )
 
@@ -89,6 +120,7 @@ function Control({ question, fieldId, value, disabled, describedBy, invalid, onC
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value || null)}
           {...common}
+          disabled={disabled || locked}
         >
           <option value="">— Select —</option>
           {question.options.map((o) => (
@@ -107,6 +139,7 @@ function Control({ question, fieldId, value, disabled, describedBy, invalid, onC
           value={value}
           onChange={onChange}
           {...common}
+          disabled={disabled || locked}
         />
       )
 
@@ -120,6 +153,7 @@ function Control({ question, fieldId, value, disabled, describedBy, invalid, onC
             value={typeof value === 'string' ? value : ''}
             onChange={(e) => onChange(e.target.value)}
             {...common}
+            {...lockedText}
           />
           <CharCount value={value} max={MAX_LONG_TEXT} />
         </>
@@ -135,6 +169,7 @@ function Control({ question, fieldId, value, disabled, describedBy, invalid, onC
           value={typeof value === 'string' ? value : ''}
           onChange={(e) => onChange(e.target.value)}
           {...common}
+          {...lockedText}
         />
       )
   }

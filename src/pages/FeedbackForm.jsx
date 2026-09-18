@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import QuestionField from '../components/QuestionField'
 import { useAuth } from '../context/AuthContext'
 import { loadForm } from '../lib/formSchema'
+import { accountIdentity, PREFILL_HINTS, prefillIdentity } from '../lib/prefill'
 import {
   cycleIsOpen,
   loadActiveCycle,
@@ -11,6 +12,8 @@ import {
   saveSubmission,
 } from '../lib/submissions'
 import { bindingIdFor, validateForm } from '../lib/validation'
+
+const NO_PREFILL = { values: {}, locked: new Set(), fields: {} }
 
 /**
  * The feedback form (FR-8 to FR-16).
@@ -30,6 +33,16 @@ export default function FeedbackForm() {
   const [values, setValues] = useState({})
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState({ phase: 'loading', message: null })
+
+  /**
+   * The identity questions this account answers for itself (lib/prefill.js).
+   *
+   * Held in state rather than derived on render because it is decided once per
+   * load, against the cycle the response belongs to: a closed cycle keeps showing
+   * the name that was actually submitted, rather than overwriting a historical
+   * record with whatever the profile says today.
+   */
+  const [prefill, setPrefill] = useState(NO_PREFILL)
 
   /**
    * The row this form is bound to.
@@ -54,6 +67,7 @@ export default function FeedbackForm() {
     // updates the old row instead of inserting a new one (FR-13, FR-15).
     setSavedId(responseId ?? null)
     setErrors({})
+    setPrefill(NO_PREFILL)
     setStatus({ phase: 'loading', message: null })
 
     async function load() {
@@ -91,9 +105,21 @@ export default function FeedbackForm() {
           }
         }
 
+        // Identity comes from the account, and overrides whatever is stored:
+        // the fields are locked, so what is shown has to be what will be saved.
+        // Only while the cycle is still open — a closed submission is a record of
+        // what was said at the time, and a since-renamed account must not rewrite it.
+        const applied = cycleIsOpen(formCycle)
+          ? prefillIdentity(
+              loadedSchema.questions,
+              accountIdentity(profile, loadedSchema.departmentName),
+            )
+          : NO_PREFILL
+
         setCycle(formCycle)
         setSchema(loadedSchema)
-        setValues(initialValues)
+        setValues({ ...initialValues, ...applied.values })
+        setPrefill(applied)
         setStatus({ phase: 'ready', message: null })
       } catch (err) {
         if (active) setStatus({ phase: 'error', message: err.message })
@@ -104,7 +130,9 @@ export default function FeedbackForm() {
     return () => {
       active = false
     }
-  }, [role, profile?.department_id, responseId])
+    // full_name and sap_id are in here because the prefill above reads them: an
+    // admin correcting a respondent's name mid-session should reach the form.
+  }, [role, profile?.department_id, profile?.full_name, profile?.sap_id, responseId])
 
   // Attach each rating question to its scale once, so field components and
   // validation share one shape.
@@ -226,8 +254,10 @@ export default function FeedbackForm() {
             type="button"
             className="secondary"
             onClick={() => {
-              // Same course would collide, so start genuinely fresh (FR-13).
-              setValues({})
+              // Same course would collide, so start genuinely fresh (FR-13) —
+              // except the locked identity fields, which have no other source and
+              // would otherwise blank out while still being unfillable.
+              setValues({ ...prefill.values })
               setErrors({})
               setSavedId(null)
               setStatus({ phase: 'ready', message: null })
@@ -307,6 +337,8 @@ export default function FeedbackForm() {
                 value={values[q.versionId]}
                 error={errors[q.versionId]}
                 disabled={readOnly}
+                locked={prefill.locked.has(q.versionId)}
+                lockHint={PREFILL_HINTS[prefill.fields[q.versionId]]}
                 onChange={(next) => setValue(q.versionId, next)}
               />
             ))}

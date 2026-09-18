@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "node scripts/check-safe-redirect.mjs && node scripts/check-supabase-url.mjs && node scripts/check-identifier.mjs && node scripts/check-validation.mjs && node scripts/check-admin.mjs && node scripts/check-departments.mjs && node scripts/check-answer-remap.mjs && node scripts/check-submissions.mjs && node scripts/check-analytics.mjs && node scripts/check-provisioning.mjs"
+    "check": "node scripts/check-safe-redirect.mjs && node scripts/check-supabase-url.mjs && node scripts/check-identifier.mjs && node scripts/check-validation.mjs && node scripts/check-admin.mjs && node scripts/check-departments.mjs && node scripts/check-answer-remap.mjs && node scripts/check-submissions.mjs && node scripts/check-analytics.mjs && node scripts/check-provisioning.mjs && node scripts/check-prefill.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.111.0",

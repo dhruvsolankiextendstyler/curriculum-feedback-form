@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import AdminNav from '../components/AdminNav'
 import {
   activateCycle,
@@ -19,7 +20,12 @@ import {
  * it to decide whether a respondent may still edit (FR-16). Changing a date here
  * changes what respondents can do immediately, so the UI says so plainly.
  */
+/** Analytics, pre-filtered to one academic year (read back by AdminAnalytics). */
+export const analyticsPathFor = (cycleId) =>
+  `/admin/analytics?cycle=${encodeURIComponent(cycleId)}`
+
 export default function AdminCycles() {
+  const navigate = useNavigate()
   const [cycles, setCycles] = useState([])
   const [counts, setCounts] = useState({})
   const [state, setState] = useState({ loading: true, error: null })
@@ -88,7 +94,8 @@ export default function AdminCycles() {
         <p className="muted">
           Feedback is grouped by academic year. Only one cycle collects responses
           at a time, and its closing date is the deadline after which respondents
-          can no longer change their answers.
+          can no longer change their answers. Select a row to open that
+          year&rsquo;s analytics.
         </p>
         <div className="button-row">
           <button type="button" onClick={() => setCreating((v) => !v)}>
@@ -163,9 +170,23 @@ export default function AdminCycles() {
                 {sortedCycles.map((cycle) => {
                   const status = cycleState(cycle)
                   return (
-                    <tr key={cycle.id} className={status === 'closed' ? 'row-muted' : ''}>
+                    <tr
+                      key={cycle.id}
+                      className={`row-clickable${status === 'closed' ? ' row-muted' : ''}`}
+                      // The whole row opens this year's analytics. The label is
+                      // also a real link, which is what carries keyboard users,
+                      // screen readers and middle-click — a clickable <tr> gives
+                      // none of those on its own.
+                      onClick={() => navigate(analyticsPathFor(cycle.id))}
+                    >
                       <td>
-                        <strong>{cycle.label}</strong>
+                        <Link
+                          className="row-link"
+                          to={analyticsPathFor(cycle.id)}
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          <strong>{cycle.label}</strong>
+                        </Link>
                       </td>
                       <td>
                         <span className={`pill state-${status}`}>
@@ -175,7 +196,9 @@ export default function AdminCycles() {
                       <td className="small">{formatDate(cycle.opens_at)}</td>
                       <td className="small">{formatDate(cycle.closes_at)}</td>
                       <td>{counts[cycle.id] ?? 0}</td>
-                      <td className="actions">
+                      {/* Every action here edits the cycle; none of them should
+                          also navigate away to analytics. */}
+                      <td className="actions" onClick={(event) => event.stopPropagation()}>
                         <button
                           type="button"
                           className="secondary"

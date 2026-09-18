@@ -267,7 +267,7 @@ export default function AdminQuestions() {
 
   return (
     <section>
-      <h1>Questions</h1>
+      <h1>Forms</h1>
       <AdminNav />
 
       {notice && (

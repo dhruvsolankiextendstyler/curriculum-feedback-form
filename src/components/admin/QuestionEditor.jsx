@@ -16,6 +16,25 @@ const TYPES = [
 const emptyDraft = { text: '', type: 'rating', scaleId: '', required: true, options: [] }
 
 /**
+ * Readable names for the seeded scales.
+ *
+ * `rating_scales.name` is an identifier — `excellent_to_poor_na` — and putting it
+ * straight in front of an admin made the picker a guessing game about which of
+ * two agreement scales was the 4-point one. Anything not listed falls back to its
+ * stored name, so a scale added later still appears rather than vanishing.
+ */
+const SCALE_LABELS = {
+  excellent_to_poor_na: 'Excellent → Poor, with “Not applicable”',
+  excellent_to_poor: 'Excellent → Poor',
+  agreement_5: 'Strongly Agree → Strongly Disagree',
+  agreement_4_na: 'Strongly Agree → Strongly Disagree, with “Not applicable”',
+  numeric_1_to_5: 'Numbers 1 – 5 (no labels)',
+}
+
+const describeScale = (scale) =>
+  `${SCALE_LABELS[scale.name] ?? scale.name} (${scale.options.length} points)`
+
+/**
  * Add/edit form for one question (FR-25, FR-26, FR-31).
  *
  * The panel tells the admin, before they save, whether their edit will create a
@@ -133,7 +152,7 @@ export default function QuestionEditor({ question, scales, answerCount, onSave, 
               <option value="">— Select a scale —</option>
               {scales.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} ({s.options.length} points)
+                  {describeScale(s)}
                 </option>
               ))}
             </select>
@@ -183,7 +202,13 @@ function ScalePreview({ scales, scaleId }) {
         <span key={o.id} className="scale-chip">
           {o.label}
           <span className="muted small">
-            {o.score === null ? ' (not scored)' : ` = ${o.score}`}
+            {/* A numeric scale labels its options with the score itself, so
+                "3 = 3" is noise rather than information. */}
+            {o.score === null
+              ? ' (not scored)'
+              : String(o.score) === o.label.trim()
+                ? ''
+                : ` = ${o.score}`}
           </span>
         </span>
       ))}

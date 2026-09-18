@@ -200,7 +200,17 @@ export default function AdminDepartments() {
         ? () => updateStream(row.id, { is_active: !archived }, data.streams)
         : () => updateDepartment(row.id, { is_active: !archived }, data.departments)
 
-    act(write, `${row.name} ${archived ? 'archived' : 'restored'}.`)
+    act(write, `${row.name} ${archived ? 'archived' : 'restored'}.`).then((result) => {
+      // `act` resolves to null only on failure. The open panel holds a SNAPSHOT
+      // of the row, so without this the Archive button it was clicked from keeps
+      // its old label while the table beside it already says the opposite.
+      if (result === null) return
+      setEditing((current) =>
+        current?.row?.id === row.id
+          ? { ...current, row: { ...current.row, is_active: !archived } }
+          : current,
+      )
+    })
   }
 
   function handleDeleteDepartment(row) {
@@ -264,7 +274,7 @@ export default function AdminDepartments() {
 
         <div className="filters">
           <div className="grow">
-            <label htmlFor="pick-stream">Stream</label>
+            <label htmlFor="pick-stream">Check streams</label>
             <select
               id="pick-stream"
               value={pick.streamId}
@@ -324,7 +334,7 @@ export default function AdminDepartments() {
           </div>
 
           <div className="grow">
-            <label htmlFor="pick-department">Department</label>
+            <label htmlFor="pick-department">Check departments</label>
             <select
               id="pick-department"
               value={pick.departmentId}
@@ -501,7 +511,37 @@ export default function AdminDepartments() {
               <button type="button" className="secondary" onClick={() => setEditing(null)}>
                 Cancel
               </button>
+              {/* Archive and delete both live here so the choice is made in the
+                  same place as the rename, rather than only from the table below.
+                  handleDeleteDepartment does the asking: it checks what still
+                  references this row and offers archiving when a delete would be
+                  refused. `type="button"` on both — inside a <form>, the default
+                  is submit, which would save the draft on the way out. */}
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() =>
+                  setArchived(editing.row, 'department', editing.row.is_active)
+                }
+              >
+                {editing.row.is_active ? 'Archive' : 'Restore'}
+              </button>
+              <button
+                type="button"
+                className="secondary danger"
+                disabled={busy}
+                onClick={() => handleDeleteDepartment(editing.row)}
+              >
+                Delete department
+              </button>
             </div>
+            <p className="field-hint">
+              Archiving takes {editing.row.name} out of the pickers and the add-user
+              form but keeps its people and its analytics. Deleting removes the row
+              outright, and the database refuses that while any account, response or
+              question still points at it.
+            </p>
           </form>
         </div>
       )}
@@ -668,6 +708,11 @@ export default function AdminDepartments() {
   )
 }
 
+/**
+ * The two edge cases keep their own wording: with no stream picked the control is
+ * disabled, and an empty stream is worth saying out loud rather than leaving an
+ * admin clicking an empty list.
+ */
 function departmentPlaceholder(streamId, inStream) {
   if (!streamId) return 'Choose a stream first'
   if (inStream.length === 0) return 'No departments in this stream yet'

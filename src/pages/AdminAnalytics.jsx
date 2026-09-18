@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import AdminNav from '../components/AdminNav'
 import {
   ChoiceChart, DistributionChart, QuestionAverages, TrendChart,
@@ -50,8 +51,15 @@ const EMPTY_FILTERS = {
 }
 
 export default function Analytics() {
+  // `?cycle=<id>` is how the Cycles page hands one year over, and it is what
+  // makes a filtered view a link an admin can bookmark or send to a colleague.
+  const [searchParams, setSearchParams] = useSearchParams()
+
   const [tab, setTab] = useState('overview')
-  const [filters, setFilters] = useState(EMPTY_FILTERS)
+  const [filters, setFilters] = useState(() => ({
+    ...EMPTY_FILTERS,
+    cycleId: searchParams.get('cycle') ?? '',
+  }))
   const [options, setOptions] = useState(null)
   const [error, setError] = useState(null)
 
@@ -64,6 +72,25 @@ export default function Analytics() {
       active = false
     }
   }, [])
+
+  /** Keeps the year in the address bar, so a reload lands on the same slice. */
+  const selectCycle = useCallback(
+    (cycleId) => {
+      setFilters((current) => ({ ...current, cycleId }))
+      setSearchParams(cycleId ? { cycle: cycleId } : {}, { replace: true })
+    },
+    [setSearchParams],
+  )
+
+  // A cycle id that no longer exists — a deleted year, a hand-edited URL — would
+  // otherwise leave the picker blank while every panel quietly reported on all
+  // years. Fall back to "All years" and say so in the URL too.
+  useEffect(() => {
+    if (!options || !filters.cycleId) return
+    if (!(options.cycles ?? []).some((c) => c.id === filters.cycleId)) {
+      selectCycle('')
+    }
+  }, [options, filters.cycleId, selectCycle])
 
   const setFilter = (key) => (event) =>
     setFilters((current) => ({ ...current, [key]: event.target.value }))
@@ -91,7 +118,11 @@ export default function Analytics() {
         <div className="filters">
           <div>
             <label htmlFor="f-cycle">Academic year</label>
-            <select id="f-cycle" value={filters.cycleId} onChange={setFilter('cycleId')}>
+            <select
+              id="f-cycle"
+              value={filters.cycleId}
+              onChange={(event) => selectCycle(event.target.value)}
+            >
               <option value="">All years</option>
               {(options?.cycles ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
@@ -169,7 +200,14 @@ export default function Analytics() {
             </select>
           </div>
           {hasFilters && (
-            <button type="button" className="secondary" onClick={() => setFilters(EMPTY_FILTERS)}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setFilters(EMPTY_FILTERS)
+                setSearchParams({}, { replace: true })
+              }}
+            >
               Clear
             </button>
           )}

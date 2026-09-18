@@ -28,6 +28,23 @@ import { loadDepartmentTree } from '../lib/admin/departments'
 const EMPTY_TREE = { streams: [], departments: [] }
 
 /**
+ * What every filter except the role reverts to when a role is picked.
+ *
+ * Choosing a role is the start of a new question — "show me the faculty" — and
+ * carrying a stale department or search term into it answers a different one,
+ * usually with an empty table and no clue why. `view` is deliberately NOT in
+ * here: Current/Removed selects which LIST is being filtered, and resetting it
+ * would throw an admin out of the removed-users list mid-search.
+ */
+const FILTER_DEFAULTS = {
+  status: '',
+  streamId: '',
+  departmentId: '',
+  search: '',
+  sort: 'recent',
+}
+
+/**
  * FR-19 to FR-23, FR-46, FR-51: direct creation, editing, filtering and soft
  * removal.
  *
@@ -43,11 +60,7 @@ export default function AdminUsers() {
   const [filters, setFilters] = useState({
     view: 'current',
     role: '',
-    status: '',
-    streamId: '',
-    departmentId: '',
-    search: '',
-    sort: 'recent',
+    ...FILTER_DEFAULTS,
   })
   const [users, setUsers] = useState([])
   const [tree, setTree] = useState(EMPTY_TREE)
@@ -280,9 +293,17 @@ export default function AdminUsers() {
           <select
             id="filter-role"
             value={filters.role}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, role: event.target.value }))
-            }
+            onChange={(event) => {
+              // A new role starts a new question: everything else goes back to
+              // its default so the answer is the whole role, not the role
+              // narrowed by whatever was set for the last one.
+              setEditing(null)
+              setFilters((current) => ({
+                ...current,
+                role: event.target.value,
+                ...FILTER_DEFAULTS,
+              }))
+            }}
           >
             <option value="">All roles</option>
             {roleOptions.map((role) => (

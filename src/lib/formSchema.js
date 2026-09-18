@@ -94,6 +94,9 @@ export async function loadForm(role, departmentId = null) {
     form,
     questions,
     scales,
+    // Carried out rather than only consumed by sectionise: the faculty form asks
+    // for a department as a question, and prefill.js answers it from here.
+    departmentName,
     sections: sectionise(questions, departmentName),
   }
 }

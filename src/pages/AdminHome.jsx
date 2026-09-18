@@ -17,10 +17,9 @@ export default function AdminHome() {
       const countOf = (table) =>
         supabase.from(table).select('id', { count: 'exact', head: true })
 
-      const [users, forms, questions, responses, departments, cycle] = await Promise.all([
+      const [users, forms, responses, departments, cycle] = await Promise.all([
         countOf('profiles'),
         countOf('forms'),
-        countOf('questions'),
         countOf('responses'),
         countOf('departments'),
         supabase
@@ -36,7 +35,7 @@ export default function AdminHome() {
       // migration 0008, and a dashboard that refuses to load is a poor way to
       // report a pending migration. The tile is left out instead.
       const error =
-        users.error || forms.error || questions.error || responses.error || cycle.error
+        users.error || forms.error || responses.error || cycle.error
       if (error) {
         setState({ loading: false, error: error.message, counts: null })
         return
@@ -48,7 +47,6 @@ export default function AdminHome() {
         counts: {
           users: users.count ?? 0,
           forms: forms.count ?? 0,
-          questions: questions.count ?? 0,
           responses: responses.count ?? 0,
           departments: departments.error ? null : departments.count ?? 0,
           cycle: cycle.data,
@@ -72,21 +70,35 @@ export default function AdminHome() {
     )
   }
 
-  const { users, forms, questions, responses, departments, cycle } = state.counts
+  const { users, forms, responses, departments, cycle } = state.counts
+
+  const cycleClosed = cycle && new Date(cycle.closes_at) < new Date()
 
   return (
     <section>
       <h1>Admin dashboard</h1>
       <AdminNav />
-      <p className="muted">
-        {cycle
-          ? `Active cycle: ${cycle.label} — closes ${new Date(
-              cycle.closes_at
-            ).toLocaleDateString()}`
-          : 'No active cycle. Create one before collecting feedback.'}
-      </p>
+
+      {cycle ? (
+        <div className={`notice ${cycleClosed ? 'error' : 'success'}`} role="status">
+          <p>
+            <strong>Active cycle: {cycle.label}</strong>
+            {cycleClosed
+              ? ` — closed ${new Date(cycle.closes_at).toLocaleDateString()}. Submissions are read-only.`
+              : ` — closes ${new Date(cycle.closes_at).toLocaleDateString()}`}
+          </p>
+        </div>
+      ) : (
+        <div className="notice error" role="status">
+          <p>No active cycle. <Link to="/admin/cycles">Create one</Link> before collecting feedback.</p>
+        </div>
+      )}
 
       <div className="stat-grid">
+        <div className="stat">
+          <span className="stat-value">{responses}</span>
+          <span className="stat-label">Responses</span>
+        </div>
         <div className="stat">
           <span className="stat-value">{users}</span>
           <span className="stat-label">Users</span>
@@ -101,23 +113,29 @@ export default function AdminHome() {
           <span className="stat-value">{forms}</span>
           <span className="stat-label">Forms</span>
         </div>
-        <div className="stat">
-          <span className="stat-value">{questions}</span>
-          <span className="stat-label">Questions</span>
-        </div>
-        <div className="stat">
-          <span className="stat-value">{responses}</span>
-          <span className="stat-label">Responses</span>
-        </div>
       </div>
 
-      <div className="card">
-        <h2>Analytics</h2>
-        <p className="muted">
-          Response counts, per-question averages, distributions, year-over-year
-          trends, sentiment on written answers and CSV export (FR-34 to FR-42).
-        </p>
-        <Link to="/admin/analytics">Open analytics</Link>
+      <div className="quick-actions">
+        <div className="card">
+          <h3>Analytics</h3>
+          <p className="muted">Averages, distributions, trends and sentiment.</p>
+          <Link to="/admin/analytics">Open analytics</Link>
+        </div>
+        <div className="card">
+          <h3>Cycles</h3>
+          <p className="muted">Manage academic year deadlines.</p>
+          <Link to="/admin/cycles">Manage cycles</Link>
+        </div>
+        <div className="card">
+          <h3>Forms</h3>
+          <p className="muted">Add or edit feedback questions.</p>
+          <Link to="/admin/forms">Edit forms</Link>
+        </div>
+        <div className="card">
+          <h3>Users</h3>
+          <p className="muted">Roles, departments and access.</p>
+          <Link to="/admin/users">Manage users</Link>
+        </div>
       </div>
     </section>
   )
