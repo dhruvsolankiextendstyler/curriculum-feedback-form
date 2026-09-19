@@ -156,19 +156,22 @@ export async function saveSubmission({
   questions,
   values,
 }) {
-  const meta = {
-    program: pickMeta(questions, values, PROGRAM_KEYS),
-    course_title: pickMeta(questions, values, COURSE_KEYS),
-  }
+  const program = pickMeta(questions, values, PROGRAM_KEYS)
+  const courseTitle = pickMeta(questions, values, COURSE_KEYS)
+  const meta = {}
+  if (program !== null) meta.program = program
+  if (courseTitle !== null) meta.course_title = courseTitle
 
   let id = responseId
 
   if (id) {
-    const { error } = await supabase
-      .from('responses')
-      .update(meta)
-      .eq('id', id)
-    if (error) throw translateSaveError(error)
+    if (Object.keys(meta).length > 0) {
+      const { error } = await supabase
+        .from('responses')
+        .update(meta)
+        .eq('id', id)
+      if (error) throw translateSaveError(error)
+    }
   } else {
     const { data, error } = await supabase
       .from('responses')

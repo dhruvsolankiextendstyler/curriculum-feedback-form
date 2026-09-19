@@ -6,6 +6,7 @@ import { useAuth } from './context/AuthContext'
 import AdminCycles from './pages/AdminCycles'
 import AdminDepartments from './pages/AdminDepartments'
 import AdminHome from './pages/AdminHome'
+import AdminLogs from './pages/AdminLogs'
 import AdminQuestions from './pages/AdminQuestions'
 import AdminUsers from './pages/AdminUsers'
 import FeedbackForm from './pages/FeedbackForm'
@@ -147,6 +148,17 @@ export default function App() {
               <Suspense fallback={<p className="muted">Loading analytics…</p>}>
                 <AdminAnalytics />
               </Suspense>
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin/logs"
+        element={
+          <ProtectedRoute requireAdmin>
+            <Layout>
+              <AdminLogs />
             </Layout>
           </ProtectedRoute>
         }

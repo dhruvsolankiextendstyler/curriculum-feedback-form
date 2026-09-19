@@ -1,29 +1,133 @@
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
+  Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { axisFor, formatAvg, formatNormalised, spansVersions } from '../../lib/analytics/scales'
 
-/**
- * Charts for the analytics dashboard (FR-36, FR-38, FR-39).
- *
- * Two rules run through all of them.
- *
- * A null average stays null all the way to the axis. recharts draws a break in
- * the series for null and a floor-scraping dip for 0, and the second reads as
- * "rated terribly" when it actually means "nobody gave this a score".
- *
- * The axis comes from axisFor(), so a chart whose rows span a 4-point and a
- * 5-point scale is drawn normalised with a caption rather than pretending the
- * two are comparable. Making the wrong chart unrepresentable beats trusting the
- * caller not to draw it.
- */
-
-/** Distinct enough in greyscale and for the common colour-vision deficiencies. */
 const SERIES = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95']
+const PIE_COLORS = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95', '#5b9bd5', '#70ad47']
+const SENTIMENT_COLORS = { positive: '#4a9c7d', neutral: '#7d8b95', negative: '#c0504d', none: '#d8dce3' }
 
 const shorten = (text, max = 42) =>
   !text ? '' : text.length <= max ? text : `${text.slice(0, max - 1)}…`
+
+function CustomPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, name }) {
+  if (percent < 0.04) return null
+  const RADIAN = Math.PI / 180
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5
+  const x = cx + radius * Math.cos(-midAngle * RADIAN)
+  const y = cy + radius * Math.sin(-midAngle * RADIAN)
+  return (
+    <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central" fontSize={12} fontWeight={600}>
+      {`${(percent * 100).toFixed(0)}%`}
+    </text>
+  )
+}
+
+/** Donut chart for any name/value array. */
+export function BreakdownPie({ data, height = 280 }) {
+  if (!data?.length) return null
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <PieChart>
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          innerRadius={50}
+          outerRadius={100}
+          paddingAngle={2}
+          label={CustomPieLabel}
+          labelLine={false}
+        >
+          {data.map((_, i) => (
+            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+          ))}
+        </Pie>
+        <Tooltip formatter={(v) => v} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+      </PieChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Horizontal bar chart for breakdown rows. */
+export function BreakdownBars({ data, height }) {
+  if (!data?.length) return null
+  const h = height ?? Math.max(180, data.length * 32)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" allowDecimals={false} />
+        <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 12 }} />
+        <Tooltip />
+        <Bar dataKey="value" name="Responses" fill={SERIES[0]} radius={[0, 3, 3, 0]}>
+          {data.map((_, i) => (
+            <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Sentiment donut: positive/neutral/negative/none. */
+export function SentimentPie({ counts, height = 260 }) {
+  if (!counts) return null
+  const data = [
+    { name: 'Positive', value: counts.positive, color: SENTIMENT_COLORS.positive },
+    { name: 'Neutral', value: counts.neutral, color: SENTIMENT_COLORS.neutral },
+    { name: 'Negative', value: counts.negative, color: SENTIMENT_COLORS.negative },
+    { name: 'No answer', value: counts.none, color: SENTIMENT_COLORS.none },
+  ].filter((d) => d.value > 0)
+
+  if (!data.length) return null
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <PieChart>
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          cx="50%"
+          cy="50%"
+          innerRadius={45}
+          outerRadius={90}
+          paddingAngle={2}
+          label={CustomPieLabel}
+          labelLine={false}
+        >
+          {data.map((d, i) => (
+            <Cell key={i} fill={d.color} />
+          ))}
+        </Pie>
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+      </PieChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Top mentioned terms as a horizontal bar chart. */
+export function TopTermsChart({ terms, height }) {
+  if (!terms?.length) return null
+  const data = terms.map((t) => ({ name: t.term, value: t.count }))
+  const h = height ?? Math.max(160, data.length * 32)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" allowDecimals={false} />
+        <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+        <Tooltip />
+        <Bar dataKey="value" name="Mentions" fill={SERIES[1]} radius={[0, 3, 3, 0]} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
 
 /** FR-36: average per question. */
 export function QuestionAverages({ rows }) {
@@ -34,7 +138,6 @@ export function QuestionAverages({ rows }) {
   const data = rows.map((row) => ({
     key: row.question_key,
     label: shorten(row.question_text ?? row.question_key),
-    // Explicitly null, never 0 — see the note at the top of this file.
     value: row[axis.key] === null || row[axis.key] === undefined ? null : Number(row[axis.key]),
     row,
   }))
@@ -50,8 +153,6 @@ export function QuestionAverages({ rows }) {
           <Tooltip content={<AverageTooltip normalised={axis.normalised} />} />
           <Bar dataKey="value" fill={SERIES[0]} radius={[0, 3, 3, 0]}>
             {data.map((entry) => (
-              // A version-spanning average is drawn in a different colour so the
-              // caveat is visible in the chart, not only in the table (FR-34).
               <Cell
                 key={entry.key}
                 fill={spansVersions(entry.row) ? SERIES[2] : SERIES[0]}
@@ -88,14 +189,6 @@ function AverageTooltip({ active, payload, normalised }) {
   )
 }
 
-/**
- * FR-38: how many people chose each option.
- *
- * Counts, not percentages. The denominator here is every answer including the
- * non-scoring ones, which is a different denominator from the average's — and
- * showing both as percentages side by side is what makes bars appear to sum
- * past 100%.
- */
 export function DistributionChart({ rows, questionKey }) {
   const forQuestion = (rows ?? []).filter((r) => r.question_key === questionKey)
   if (!forQuestion.length) return <p className="muted">No answers for this question yet.</p>
@@ -116,8 +209,6 @@ export function DistributionChart({ rows, questionKey }) {
         <Tooltip />
         <Bar dataKey="n" name="Answers" radius={[3, 3, 0, 0]}>
           {data.map((entry) => (
-            // Non-scoring options are greyed: they are counted here but excluded
-            // from every average, and that distinction should be visible.
             <Cell key={entry.label} fill={entry.scoring ? SERIES[0] : SERIES[5]} />
           ))}
         </Bar>
@@ -126,13 +217,6 @@ export function DistributionChart({ rows, questionKey }) {
   )
 }
 
-/**
- * FR-39: one line per question across cycles.
- *
- * Points where the answers span more than one wording are drawn as a hollow
- * marker, so a jump caused by a reworded question is not read as a change in
- * opinion.
- */
 export function TrendChart({ rows }) {
   if (!rows?.length) return <p className="muted">No trend data yet — this needs a second cycle.</p>
 
@@ -151,7 +235,6 @@ export function TrendChart({ rows }) {
     byQuestion.get(key).points.set(row.cycle_id, row)
   }
 
-  // Ordered by opens_at, not label: the label is text and would sort lexically.
   cycles.sort((a, b) => new Date(a.opensAt) - new Date(b.opensAt))
 
   const series = [...byQuestion.values()]
@@ -184,12 +267,7 @@ export function TrendChart({ rows }) {
               name={s.label}
               stroke={SERIES[i % SERIES.length]}
               strokeWidth={2}
-              // Leaves a visible gap rather than joining across a missing cycle.
               connectNulls={false}
-              // `key` is destructured out of what recharts passes and applied
-              // directly. Spread into JSX it trips React's "props object
-              // containing a 'key' prop is being spread" warning — an error in
-              // a future major — and the dot does not get the key intended.
               dot={({ key, ...rest }) => (
                 <VersionDot
                   key={key}
@@ -226,7 +304,6 @@ function VersionDot({ cx, cy, payload, colour, seriesKey }) {
   )
 }
 
-/** FR-38 for single/multi select questions. */
 export function ChoiceChart({ rows, questionKey }) {
   const forQuestion = (rows ?? []).filter((r) => r.question_key === questionKey)
   if (!forQuestion.length) return <p className="muted">No choices recorded yet.</p>

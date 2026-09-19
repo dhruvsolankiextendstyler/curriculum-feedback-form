@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import QuestionField from '../components/QuestionField'
 import { useAuth } from '../context/AuthContext'
 import { loadForm } from '../lib/formSchema'
@@ -11,6 +11,7 @@ import {
   loadResponse,
   saveSubmission,
 } from '../lib/submissions'
+import { supabase } from '../lib/supabase'
 import { bindingIdFor, validateForm } from '../lib/validation'
 
 const NO_PREFILL = { values: {}, locked: new Set(), fields: {} }
@@ -25,6 +26,8 @@ const NO_PREFILL = { values: {}, locked: new Set(), fields: {} }
  */
 export default function FeedbackForm() {
   const { responseId } = useParams()
+  const [searchParams] = useSearchParams()
+  const scope = searchParams.get('scope') // 'college', 'department', or null (all)
   const { user, role, profile } = useAuth()
   const navigate = useNavigate()
 
@@ -152,6 +155,30 @@ export default function FeedbackForm() {
     }))
   }, [schema, questions])
 
+  const visibleSections = useMemo(() => {
+    if (!scope) return sections
+    if (scope === 'college') return sections.filter((s) => s.key !== 'department')
+    if (scope === 'department') return sections.filter((s) => s.key === 'about' || s.key === 'department')
+    return sections
+  }, [sections, scope])
+
+  const visibleQuestions = useMemo(
+    () => visibleSections.flatMap((s) => s.questions),
+    [visibleSections],
+  )
+
+  const curriculumPdfUrl = useMemo(() => {
+    const pdfs = schema?.curriculumPdfs
+    if (!pdfs) return null
+    const path =
+      scope === 'department' ? (pdfs.department ?? pdfs.college) :
+      scope === 'college' ? pdfs.college :
+      (pdfs.department ?? pdfs.college)
+    if (!path) return null
+    const { data } = supabase.storage.from('curriculum-pdfs').getPublicUrl(path)
+    return data?.publicUrl ?? null
+  }, [schema, scope])
+
   const isOpen = cycleIsOpen(cycle)
   const readOnly = !isOpen
   const isEditing = Boolean(responseId)
@@ -172,13 +199,12 @@ export default function FeedbackForm() {
     event.preventDefault()
     if (readOnly) return
 
-    const result = validateForm(questions, values)
+    const toValidate = visibleQuestions.length ? visibleQuestions : questions
+    const result = validateForm(toValidate, values)
     setErrors(result.errors)
 
     if (!result.ok) {
       setStatus({ phase: 'ready', message: null })
-      // Move focus to the summary so keyboard and screen-reader users are told
-      // what went wrong instead of silently staying put.
       requestAnimationFrame(() => errorSummary.current?.focus())
       return
     }
@@ -190,7 +216,7 @@ export default function FeedbackForm() {
         userId: user.id,
         form: schema.form,
         cycle,
-        questions,
+        questions: toValidate,
         values,
       })
       setSavedId(id)
@@ -250,22 +276,21 @@ export default function FeedbackForm() {
           <Link className="button-link" to="/feedback">
             My submissions
           </Link>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              // Same course would collide, so start genuinely fresh (FR-13) —
-              // except the locked identity fields, which have no other source and
-              // would otherwise blank out while still being unfillable.
-              setValues({ ...prefill.values })
-              setErrors({})
-              setSavedId(null)
-              setStatus({ phase: 'ready', message: null })
-              navigate('/feedback/new')
-            }}
-          >
-            Give feedback for another course
-          </button>
+          {scope !== 'department' && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setValues({ ...prefill.values })
+                setErrors({})
+                setSavedId(null)
+                setStatus({ phase: 'ready', message: null })
+                navigate(`/feedback/new${scope ? `?scope=${scope}` : ''}`)
+              }}
+            >
+              Give feedback for another course
+            </button>
+          )}
         </div>
       </div>
     )
@@ -275,7 +300,11 @@ export default function FeedbackForm() {
 
   return (
     <section>
-      <h1>{schema.form.title}</h1>
+      <h1>
+        {schema.form.title}
+        {scope === 'college' && ' — College-wide'}
+        {scope === 'department' && ` — ${schema.departmentName || 'Department'}`}
+      </h1>
       <p className="muted">
         Cycle <strong>{cycle.label}</strong>
         {readOnly ? (
@@ -291,6 +320,27 @@ export default function FeedbackForm() {
           <p>
             You can read what you submitted, but it can no longer be changed.
           </p>
+        </div>
+      )}
+
+      {curriculumPdfUrl && (
+        <div className="card curriculum-pdf-section">
+          <h2>Curriculum</h2>
+          <p className="muted small">
+            Please review the curriculum below before providing your feedback.
+          </p>
+          <object
+            data={curriculumPdfUrl}
+            type="application/pdf"
+            className="curriculum-pdf-embed"
+          >
+            <p>
+              Your browser cannot display the PDF inline.{' '}
+              <a href={curriculumPdfUrl} target="_blank" rel="noopener noreferrer">
+                Download the curriculum PDF
+              </a>
+            </p>
+          </object>
         </div>
       )}
 
@@ -323,7 +373,7 @@ export default function FeedbackForm() {
       )}
 
       <form onSubmit={handleSubmit} noValidate>
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <fieldset key={section.key} className="card section" disabled={readOnly}>
             <legend>
               <h2>{section.title}</h2>

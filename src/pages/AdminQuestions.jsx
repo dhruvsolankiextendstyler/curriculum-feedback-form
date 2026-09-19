@@ -30,6 +30,67 @@ const TYPE_LABELS = {
 
 const EMPTY_TREE = { streams: [], departments: [] }
 
+function pdfStoragePath(formId, departmentId) {
+  return departmentId ? `${formId}/${departmentId}.pdf` : `${formId}/college-wide.pdf`
+}
+
+async function uploadCurriculumPdf(formId, departmentId, file) {
+  const path = pdfStoragePath(formId, departmentId)
+  const { error: uploadErr } = await supabase.storage
+    .from('curriculum-pdfs')
+    .upload(path, file, { upsert: true, contentType: 'application/pdf' })
+  if (uploadErr) throw new Error(uploadErr.message)
+
+  const deptFilter = departmentId || null
+  const { data: existing } = await supabase
+    .from('curriculum_pdfs')
+    .select('id')
+    .eq('form_id', formId)
+    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+    .maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase
+      .from('curriculum_pdfs')
+      .update({ pdf_path: path, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (error) throw new Error(error.message)
+  } else {
+    const { error } = await supabase
+      .from('curriculum_pdfs')
+      .insert({ form_id: formId, department_id: deptFilter, pdf_path: path })
+    if (error) throw new Error(error.message)
+  }
+  return path
+}
+
+async function removeCurriculumPdf(formId, departmentId, path) {
+  await supabase.storage.from('curriculum-pdfs').remove([path])
+  const deptFilter = departmentId || null
+  const { error } = await supabase
+    .from('curriculum_pdfs')
+    .delete()
+    .eq('form_id', formId)
+    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+  if (error) throw new Error(error.message)
+}
+
+function getCurriculumPdfUrl(path) {
+  const { data } = supabase.storage.from('curriculum-pdfs').getPublicUrl(path)
+  return data?.publicUrl ?? null
+}
+
+async function loadCurriculumPdfForAdmin(formId, departmentId) {
+  const deptFilter = departmentId || null
+  const { data } = await supabase
+    .from('curriculum_pdfs')
+    .select('pdf_path')
+    .eq('form_id', formId)
+    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+    .maybeSingle()
+  return data?.pdf_path ?? null
+}
+
 /**
  * FR-25 to FR-34, FR-53: question CRUD with versioning, reorder, soft delete and
  * history — for one *(form, department)* set at a time.
@@ -55,6 +116,8 @@ export default function AdminQuestions() {
   const [historyFor, setHistoryFor] = useState(null)
   const [copying, setCopying] = useState(null)
   const [showDeleted, setShowDeleted] = useState(false)
+  const [pdfPath, setPdfPath] = useState(null)
+  const [pdfBusy, setPdfBusy] = useState(false)
 
   // Forms, scales and the department list are static for the session; load once.
   useEffect(() => {
@@ -93,7 +156,12 @@ export default function AdminQuestions() {
     if (!formId) return
     setState({ loading: true, error: null })
     try {
-      setQuestions(await loadQuestionsForAdmin(formId, departmentId))
+      const [qs, pdf] = await Promise.all([
+        loadQuestionsForAdmin(formId, departmentId),
+        loadCurriculumPdfForAdmin(formId, departmentId),
+      ])
+      setQuestions(qs)
+      setPdfPath(pdf)
       setState({ loading: false, error: null })
     } catch (err) {
       setState({ loading: false, error: err.message })
@@ -127,6 +195,39 @@ export default function AdminQuestions() {
 
   /** The department slug namespaces a new key — see deriveQuestionKey. */
   const keyPrefix = currentDepartment?.slug ?? ''
+
+  const pdfUrl = pdfPath ? getCurriculumPdfUrl(pdfPath) : null
+
+  async function handlePdfUpload(event) {
+    const file = event.target.files?.[0]
+    if (!file || !formId) return
+    setPdfBusy(true)
+    try {
+      const path = await uploadCurriculumPdf(formId, departmentId, file)
+      setPdfPath(path)
+      setNotice('Curriculum PDF uploaded.')
+    } catch (err) {
+      setState((s) => ({ ...s, error: err.message }))
+    } finally {
+      setPdfBusy(false)
+      event.target.value = ''
+    }
+  }
+
+  async function handlePdfRemove() {
+    if (!pdfPath || !formId) return
+    if (!window.confirm('Remove the curriculum PDF?')) return
+    setPdfBusy(true)
+    try {
+      await removeCurriculumPdf(formId, departmentId, pdfPath)
+      setPdfPath(null)
+      setNotice('Curriculum PDF removed.')
+    } catch (err) {
+      setState((s) => ({ ...s, error: err.message }))
+    } finally {
+      setPdfBusy(false)
+    }
+  }
 
 
   async function openEditor(question) {
@@ -343,6 +444,57 @@ export default function AdminQuestions() {
             Add question
           </button>
         </div>
+      </div>
+
+      <div className="card">
+        <label><strong>Curriculum PDF</strong></label>
+        <p className="muted small">
+          {departmentId
+            ? `PDF for ${currentDepartment?.name ?? 'this department'} respondents. Falls back to the college-wide PDF if not set.`
+            : 'College-wide PDF shown to all respondents of this form.'}
+        </p>
+        {pdfUrl ? (
+          <div className="pdf-row">
+            <a href={pdfUrl} target="_blank" rel="noopener noreferrer">
+              View current PDF
+            </a>
+            {!readOnly && (
+              <>
+                <label className="button-link secondary small-btn">
+                  Replace
+                  <input
+                    type="file"
+                    accept="application/pdf"
+                    hidden
+                    onChange={handlePdfUpload}
+                    disabled={pdfBusy}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="secondary danger small-btn"
+                  onClick={handlePdfRemove}
+                  disabled={pdfBusy}
+                >
+                  Remove
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          !readOnly && (
+            <label className="button-link secondary small-btn">
+              {pdfBusy ? 'Uploading…' : 'Upload PDF'}
+              <input
+                type="file"
+                accept="application/pdf"
+                hidden
+                onChange={handlePdfUpload}
+                disabled={pdfBusy}
+              />
+            </label>
+          )
+        )}
       </div>
 
       <div className="card">

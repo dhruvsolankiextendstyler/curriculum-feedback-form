@@ -29,14 +29,14 @@ import Papa from 'papaparse'
  * behind the moment it is downloaded, so there is no opt-in.
  */
 export const IDENTITY_KEYS = new Set([
-  'name', 'full_name', 'sap_number', 'roll_number', 'contact_number', 'phone',
-  'email', 'email_address', 'designation', 'organization', 'organisation',
+  'name', 'full_name', 'sap_number', 'sap_id', 'roll_number',
+  'contact_number', 'phone', 'email', 'email_address',
+  'designation', 'organization', 'organisation',
   'organization_location', 'organisation_location', 'department',
   'completion_year', 'year_of_passing', 'company', 'employer_name',
 ])
 
 export const COLUMNS = [
-  { key: 'response_id', label: 'Response ID' },
   { key: 'cycle_label', label: 'Academic year' },
   { key: 'stakeholder_type', label: 'Stakeholder' },
   { key: 'program', label: 'Program' },
@@ -64,7 +64,6 @@ function toRecord(row) {
   const options = Array.isArray(row.value_options) ? row.value_options : null
 
   return {
-    response_id: row.response_id,
     cycle_label: row.cycle_label,
     stakeholder_type: row.stakeholder_type,
     program: row.program ?? '',

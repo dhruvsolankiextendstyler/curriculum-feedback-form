@@ -1119,3 +1119,131 @@ textarea.locked {
 .quick-actions .card p {
   margin: 0 0 8px;
 }
+
+/* Curriculum PDF */
+.curriculum-pdf-embed {
+  width: 100%;
+  height: 600px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-top: 8px;
+}
+
+.curriculum-pdf-section {
+  margin-bottom: 16px;
+}
+
+.pdf-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.small-btn {
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+/* Feedback home cards */
+.feedback-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.dept-submissions {
+  margin-top: 8px;
+}
+
+.submission-list.compact {
+  list-style: none;
+  padding: 0;
+  margin: 4px 0 0;
+}
+
+.submission-row-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.submission-row-inline:last-child {
+  border-bottom: none;
+}
+
+/* Admin log table */
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.log-table th,
+.log-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.log-table th {
+  font-weight: 600;
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+}
+
+.log-table code {
+  font-size: 0.8rem;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.action-created  { background: #e6f4ea; color: #1c6b45; }
+.action-edited   { background: #e8f0fe; color: #1f5fa9; }
+.action-deleted  { background: var(--error-bg); color: var(--error); }
+.action-restored { background: #fef7e0; color: #8a6d10; }
+.action-reordered { background: var(--bg); color: var(--muted); }
+
+/* ---------- analytics: chart + table side by side ---------- */
+.chart-table-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .chart-table-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- sentiment pills and bars ---------- */
+.sentiment-positive { background: #e6f4ea; color: #1c6b45; }
+.sentiment-neutral  { background: var(--bg); color: var(--muted); }
+.sentiment-negative { background: var(--error-bg); color: var(--error); }
+.sentiment-none     { background: var(--bg); color: var(--muted); }
+
+.sentiment-bars {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.sentiment-bar {
+  min-width: 2px;
+}
+
+.sentiment-bar.positive { background: #4a9c7d; }
+.sentiment-bar.neutral  { background: #7d8b95; }
+.sentiment-bar.negative { background: #c0504d; }

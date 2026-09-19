@@ -16,6 +16,7 @@ const TABS = [
   { to: '/admin/forms', label: 'Forms' },
   { to: '/admin/cycles', label: 'Cycles' },
   { to: '/admin/analytics', label: 'Analytics' },
+  { to: '/admin/logs', label: 'Logs', adminOnly: true },
 ]
 
 export default function AdminNav() {

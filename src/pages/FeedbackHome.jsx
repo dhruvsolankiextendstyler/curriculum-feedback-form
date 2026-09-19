@@ -10,28 +10,23 @@ import {
   loadMySubmissions,
 } from '../lib/submissions'
 
-/**
- * FR-14 / FR-17: the respondent's landing page — what they have submitted this
- * cycle, and the way in to add or edit one.
- *
- * The Edit action disappears once the cycle closes; the underlying RLS policy
- * enforces the same thing, so this is convenience rather than the guarantee.
- */
 export default function FeedbackHome() {
   const { user, profile, role } = useAuth()
   const [state, setState] = useState({ loading: true, error: null, data: null })
   const [busyId, setBusyId] = useState(null)
 
+  const hasDepartment = Boolean(profile?.department_id)
+
   const load = useCallback(async () => {
     const cycle = await loadActiveCycle()
-    let form = null
+    let schema = null
     try {
-      form = (await loadForm(role, profile?.department_id ?? null)).form
+      schema = await loadForm(role, profile?.department_id ?? null)
     } catch {
-      form = null // no form configured for this role; reported below
+      schema = null
     }
     const submissions = cycle && user ? await loadMySubmissions(user.id, cycle.id) : []
-    return { cycle, form, submissions }
+    return { cycle, schema, submissions }
   }, [role, profile?.department_id, user])
 
   useEffect(() => {
@@ -72,8 +67,11 @@ export default function FeedbackHome() {
     )
   }
 
-  const { cycle, form, submissions } = state.data
+  const { cycle, schema, submissions } = state.data
+  const form = schema?.form ?? null
   const open = cycleIsOpen(cycle)
+  const hasDeptQuestions =
+    schema?.sections?.some((s) => s.key === 'department') ?? false
 
   return (
     <section>
@@ -101,25 +99,59 @@ export default function FeedbackHome() {
 
       {cycle && form && (
         <>
-          <div className="card">
-            <h2>{form.title}</h2>
-            <p className="muted">
-              Cycle <strong>{cycle.label}</strong>
-              {open ? (
-                <> — open until {new Date(cycle.closes_at).toLocaleDateString()}</>
-              ) : (
-                <> — closed on {new Date(cycle.closes_at).toLocaleDateString()}</>
-              )}
-            </p>
-
-            {open ? (
-              <Link className="button-link" to="/feedback/new">
-                {submissions.length ? 'Give feedback for another course' : 'Start feedback'}
-              </Link>
-            ) : (
+          <div className="feedback-cards">
+            <div className="card">
+              <h2>College-wide Feedback</h2>
               <p className="muted">
-                This cycle is closed. Existing submissions are read-only.
+                Cycle <strong>{cycle.label}</strong>
+                {open ? (
+                  <> — open until {new Date(cycle.closes_at).toLocaleDateString()}</>
+                ) : (
+                  <> — closed on {new Date(cycle.closes_at).toLocaleDateString()}</>
+                )}
               </p>
+              {open ? (
+                <Link
+                  className="button-link"
+                  to={`/feedback/new?scope=college`}
+                >
+                  {submissions.length
+                    ? 'Give feedback for another course'
+                    : 'Start feedback'}
+                </Link>
+              ) : (
+                <p className="muted">
+                  This cycle is closed. Existing submissions are read-only.
+                </p>
+              )}
+            </div>
+
+            {hasDepartment && hasDeptQuestions && (
+              <div className="card">
+                <h2>{schema.departmentName || 'Department'} Feedback</h2>
+                <p className="muted">
+                  Cycle <strong>{cycle.label}</strong>
+                  {open ? (
+                    <> — open until {new Date(cycle.closes_at).toLocaleDateString()}</>
+                  ) : (
+                    <> — closed on {new Date(cycle.closes_at).toLocaleDateString()}</>
+                  )}
+                </p>
+                {open ? (
+                  <Link
+                    className="button-link"
+                    to="/feedback/new?scope=department"
+                  >
+                    {submissions.length
+                      ? 'Give feedback for another course'
+                      : 'Start feedback'}
+                  </Link>
+                ) : (
+                  <p className="muted">
+                    This cycle is closed. Existing submissions are read-only.
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

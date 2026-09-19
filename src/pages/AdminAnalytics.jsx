@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import AdminNav from '../components/AdminNav'
 import {
-  ChoiceChart, DistributionChart, QuestionAverages, TrendChart,
+  BreakdownBars, BreakdownPie, ChoiceChart, DistributionChart,
+  QuestionAverages, SentimentPie, TopTermsChart, TrendChart,
 } from '../components/admin/AnalyticsCharts'
 import {
   loadChoiceDistribution, loadDistribution, loadExportRows, loadFilterOptions,
@@ -10,7 +11,7 @@ import {
 } from '../lib/analytics/queries'
 import { formatAvg, formatNormalised, spansVersions, versionNote } from '../lib/analytics/scales'
 import { createClassifier } from '../lib/analytics/sentiment'
-import { buildInsights } from '../lib/analytics/insights'
+import { buildInsights, topTerms } from '../lib/analytics/insights'
 import { BOM, buildCsv, fileName } from '../lib/analytics/csv'
 import { describeDepartment } from '../lib/admin/departmentRules'
 import { ROLE_LABELS } from '../lib/constants'
@@ -301,102 +302,150 @@ function OverviewTab({ filters }) {
 
   return (
     <Panel state={state}>
-      {(totals) => (
-        <>
-          <div className="stat-grid">
-            <div className="stat">
-              <span className="stat-value">{totals.responseCount}</span>
-              <span className="stat-label">Responses</span>
-            </div>
-            <div className="stat">
-              <span className="stat-value">{totals.respondentCount}</span>
-              <span className="stat-label">People</span>
-            </div>
-            <div className="stat">
-              <span className="stat-value">{totals.answerCount}</span>
-              <span className="stat-label">Answers</span>
-            </div>
-          </div>
-          <p className="muted small">
-            One person can submit for several courses, so responses exceed people.
-          </p>
+      {(totals) => {
+        const stakeholderPie = (totals.byStakeholder ?? []).map((r) => ({
+          name: ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType,
+          value: r.responseCount,
+        }))
+        const streamBars = (totals.byStream ?? []).map((r) => ({
+          name: r.stream, value: r.responseCount,
+        }))
+        const deptBars = (totals.byDepartment ?? []).map((r) => ({
+          name: describeDepartment({ name: r.department, code: r.code }),
+          value: r.responseCount,
+        }))
+        const programBars = (totals.byProgram ?? []).map((r) => ({
+          name: r.program, value: r.responseCount,
+        }))
+        const cycleBars = (totals.byCycle ?? []).map((r) => ({
+          name: r.label, value: r.responseCount,
+        }))
 
-          <Breakdown
-            title="By stakeholder"
-            rows={totals.byStakeholder}
-            nameOf={(r) => ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType}
-            countOf={(r) => r.responseCount}
-            extra={(r) => `${r.respondentCount} ${r.respondentCount === 1 ? 'person' : 'people'}`}
-          />
-          <Breakdown
-            title="By stream"
-            rows={totals.byStream}
-            nameOf={(r) => r.stream}
-            countOf={(r) => r.responseCount}
-            empty="No responses carry a department yet."
-          />
-          <Breakdown
-            title="By department"
-            rows={totals.byDepartment}
-            nameOf={(r) => describeDepartment({ name: r.department, code: r.code })}
-            countOf={(r) => r.responseCount}
-            extra={(r) => r.stream}
-            empty="No responses carry a department yet. It is recorded when feedback is submitted, so responses that predate the assignment have none."
-          />
-          <Breakdown
-            title="By program"
-            rows={totals.byProgram}
-            nameOf={(r) => r.program}
-            countOf={(r) => r.responseCount}
-            empty="No responses carry a program. Every form except the employer one asks for one."
-          />
-          <Breakdown
-            title="By course"
-            rows={totals.byCourse}
-            nameOf={(r) => r.courseTitle}
-            countOf={(r) => r.responseCount}
-            empty="No responses are tied to a course."
-          />
-          <Breakdown
-            title="By academic year"
-            rows={totals.byCycle}
-            nameOf={(r) => r.label}
-            countOf={(r) => r.responseCount}
-          />
-        </>
-      )}
+        return (
+          <>
+            <div className="stat-grid">
+              <div className="stat">
+                <span className="stat-value">{totals.responseCount}</span>
+                <span className="stat-label">Responses</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">{totals.respondentCount}</span>
+                <span className="stat-label">People</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">{totals.answerCount}</span>
+                <span className="stat-label">Answers</span>
+              </div>
+            </div>
+            <p className="muted small">
+              One person can submit for several courses, so responses exceed people.
+            </p>
+
+            {stakeholderPie.length > 0 && (
+              <div className="card">
+                <h2>By stakeholder</h2>
+                <div className="chart-table-row">
+                  <BreakdownPie data={stakeholderPie} height={260} />
+                  <Breakdown
+                    rows={totals.byStakeholder}
+                    nameOf={(r) => ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType}
+                    countOf={(r) => r.responseCount}
+                    extra={(r) => `${r.respondentCount} ${r.respondentCount === 1 ? 'person' : 'people'}`}
+                    inline
+                  />
+                </div>
+              </div>
+            )}
+
+            {streamBars.length > 0 ? (
+              <div className="card">
+                <h2>By stream</h2>
+                <BreakdownBars data={streamBars} />
+              </div>
+            ) : (
+              <div className="card">
+                <h2>By stream</h2>
+                <p className="muted">No responses carry a department yet.</p>
+              </div>
+            )}
+
+            {deptBars.length > 0 ? (
+              <div className="card">
+                <h2>By department</h2>
+                <BreakdownBars data={deptBars} />
+              </div>
+            ) : (
+              <div className="card">
+                <h2>By department</h2>
+                <p className="muted">No responses carry a department yet.</p>
+              </div>
+            )}
+
+            {programBars.length > 0 ? (
+              <div className="card">
+                <h2>By program</h2>
+                <BreakdownBars data={programBars} />
+              </div>
+            ) : (
+              <div className="card">
+                <h2>By program</h2>
+                <p className="muted">No responses carry a program.</p>
+              </div>
+            )}
+
+            <Breakdown
+              title="By course"
+              rows={totals.byCourse}
+              nameOf={(r) => r.courseTitle}
+              countOf={(r) => r.responseCount}
+              empty="No responses are tied to a course."
+            />
+
+            {cycleBars.length > 0 && (
+              <div className="card">
+                <h2>By academic year</h2>
+                <BreakdownBars data={cycleBars} />
+              </div>
+            )}
+          </>
+        )
+      }}
     </Panel>
   )
 }
 
-function Breakdown({ title, rows, nameOf, countOf, extra = null, empty = 'None yet.' }) {
+function Breakdown({ title, rows, nameOf, countOf, extra = null, empty = 'None yet.', inline = false }) {
+  const table = !rows?.length ? (
+    <p className="muted">{empty}</p>
+  ) : (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Responses</th>
+            {extra && <th>Detail</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={`${nameOf(row)}-${i}`}>
+              <td>{nameOf(row)}</td>
+              <td>{countOf(row)}</td>
+              {extra && <td className="muted">{extra(row)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+
+  if (inline) return table
+
   return (
     <div className="card">
-      <h2>{title}</h2>
-      {!rows?.length ? (
-        <p className="muted">{empty}</p>
-      ) : (
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Responses</th>
-                {extra && <th>Detail</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, i) => (
-                <tr key={`${nameOf(row)}-${i}`}>
-                  <td>{nameOf(row)}</td>
-                  <td>{countOf(row)}</td>
-                  {extra && <td className="muted">{extra(row)}</td>}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {title && <h2>{title}</h2>}
+      {table}
     </div>
   )
 }
@@ -577,7 +626,6 @@ function FeedbackTab({ filters }) {
   const text = useAnalytics(loadTextAnswers, filters)
   const [analyzer, setAnalyzer] = useState(null)
 
-  // The AFINN lexicon is ~71 KB, so it is loaded only when this tab is opened.
   useEffect(() => {
     let active = true
     import('sentiment')
@@ -599,6 +647,11 @@ function FeedbackTab({ filters }) {
   const insights = useMemo(
     () => buildInsights(stats.data ?? [], summary),
     [stats.data, summary],
+  )
+
+  const terms = useMemo(
+    () => (summary ? topTerms(summary.rows, 10) : []),
+    [summary],
   )
 
   return (
@@ -635,22 +688,34 @@ function FeedbackTab({ filters }) {
               <p className="muted">Reading answers…</p>
             ) : (
               <>
-                <div className="stat-grid">
-                  <div className="stat">
-                    <span className="stat-value">{summary.counts.positive}</span>
-                    <span className="stat-label">Positive</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-value">{summary.counts.neutral}</span>
-                    <span className="stat-label">Neutral</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-value">{summary.counts.negative}</span>
-                    <span className="stat-label">Negative</span>
-                  </div>
-                  <div className="stat">
-                    <span className="stat-value">{summary.counts.none}</span>
-                    <span className="stat-label">No answer</span>
+                <div className="chart-table-row">
+                  <SentimentPie counts={summary.counts} height={240} />
+                  <div>
+                    <div className="stat-grid">
+                      <div className="stat">
+                        <span className="stat-value">{summary.counts.positive}</span>
+                        <span className="stat-label">Positive</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-value">{summary.counts.neutral}</span>
+                        <span className="stat-label">Neutral</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-value">{summary.counts.negative}</span>
+                        <span className="stat-label">Negative</span>
+                      </div>
+                      <div className="stat">
+                        <span className="stat-value">{summary.counts.none}</span>
+                        <span className="stat-label">No answer</span>
+                      </div>
+                    </div>
+                    {summary.share.positive !== null && (
+                      <div className="sentiment-bars">
+                        <div className="sentiment-bar positive" style={{ flex: summary.share.positive }} />
+                        <div className="sentiment-bar neutral" style={{ flex: summary.share.neutral }} />
+                        <div className="sentiment-bar negative" style={{ flex: summary.share.negative }} />
+                      </div>
+                    )}
                   </div>
                 </div>
                 <p className="muted small">
@@ -661,7 +726,14 @@ function FeedbackTab({ filters }) {
                   hover a tag to see the words behind it.
                 </p>
 
-                <div className="table-wrap">
+                {terms.length > 0 && (
+                  <div style={{ marginTop: 20 }}>
+                    <h3>Most mentioned topics</h3>
+                    <TopTermsChart terms={terms} />
+                  </div>
+                )}
+
+                <div className="table-wrap" style={{ marginTop: 20 }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -674,7 +746,7 @@ function FeedbackTab({ filters }) {
                       {summary.rows.map((row) => (
                         <tr key={row.answer_id}>
                           <td>
-                            <span className="pill" title={row.sentiment.reason}>
+                            <span className={`pill sentiment-${row.sentiment.label}`} title={row.sentiment.reason}>
                               {row.sentiment.label}
                             </span>
                           </td>

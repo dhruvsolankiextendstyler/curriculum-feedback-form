@@ -87,15 +87,17 @@ export async function loadForm(role, departmentId = null) {
         : (a.departmentId ? 1 : 0) - (b.departmentId ? 1 : 0),
     )
 
-  const scales = await loadScales(questions)
-  const departmentName = departmentId ? await loadDepartmentName(departmentId) : null
+  const [scales, departmentName, curriculumPdfs] = await Promise.all([
+    loadScales(questions),
+    departmentId ? loadDepartmentName(departmentId) : null,
+    loadCurriculumPdfs(form.id, departmentId),
+  ])
 
   return {
     form,
     questions,
     scales,
-    // Carried out rather than only consumed by sectionise: the faculty form asks
-    // for a department as a question, and prefill.js answers it from here.
+    curriculumPdfs,
     departmentName,
     sections: sectionise(questions, departmentName),
   }
@@ -109,6 +111,23 @@ async function loadDepartmentName(departmentId) {
     .eq('id', departmentId)
     .maybeSingle()
   return data?.name ?? null
+}
+
+async function loadCurriculumPdfs(formId, departmentId) {
+  let query = supabase
+    .from('curriculum_pdfs')
+    .select('pdf_path, department_id')
+    .eq('form_id', formId)
+
+  query = departmentId
+    ? query.or(`department_id.is.null,department_id.eq.${departmentId}`)
+    : query.is('department_id', null)
+
+  const { data } = await query
+  if (!data || data.length === 0) return { college: null, department: null }
+  const college = data.find((r) => !r.department_id)?.pdf_path ?? null
+  const department = data.find((r) => r.department_id === departmentId)?.pdf_path ?? null
+  return { college, department }
 }
 
 /** Fetches only the scales this form actually references. */
