@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Eye, MessageSquare, Pencil, Trash2 } from 'lucide'
+import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { ROLE_LABELS } from '../lib/constants'
 import { loadForm } from '../lib/formSchema'
 import {
@@ -12,6 +15,7 @@ import {
 
 export default function FeedbackHome() {
   const { user, profile, role } = useAuth()
+  const toast = useToast()
   const [state, setState] = useState({ loading: true, error: null, data: null })
   const [busyId, setBusyId] = useState(null)
 
@@ -35,7 +39,11 @@ export default function FeedbackHome() {
 
     load()
       .then((data) => active && setState({ loading: false, error: null, data }))
-      .catch((err) => active && setState({ loading: false, error: err.message, data: null }))
+      .catch((err) => {
+        if (!active) return
+        toast.error(err.message)
+        setState({ loading: false, error: err.message, data: null })
+      })
 
     return () => {
       active = false
@@ -50,7 +58,7 @@ export default function FeedbackHome() {
       const data = await load()
       setState({ loading: false, error: null, data })
     } catch (err) {
-      setState((prev) => ({ ...prev, error: err.message }))
+      toast.error(err.message)
     } finally {
       setBusyId(null)
     }
@@ -58,14 +66,7 @@ export default function FeedbackHome() {
 
   if (state.loading) return <p className="muted">Loading…</p>
 
-  if (state.error) {
-    return (
-      <div className="notice error" role="alert">
-        <h2>Could not load your submissions</h2>
-        <p>{state.error}</p>
-      </div>
-    )
-  }
+  if (state.error) return <p className="muted centered">Could not load your submissions. Please try refreshing.</p>
 
   const { cycle, schema, submissions } = state.data
   const form = schema?.form ?? null
@@ -115,6 +116,7 @@ export default function FeedbackHome() {
                   className="button-link"
                   to={`/feedback/new?scope=college`}
                 >
+                  <Icon icon={MessageSquare} size={16} />
                   {submissions.length
                     ? 'Give feedback for another course'
                     : 'Start feedback'}
@@ -142,6 +144,7 @@ export default function FeedbackHome() {
                     className="button-link"
                     to="/feedback/new?scope=department"
                   >
+                    <Icon icon={MessageSquare} size={16} />
                     {submissions.length
                       ? 'Give feedback for another course'
                       : 'Start feedback'}
@@ -176,6 +179,7 @@ export default function FeedbackHome() {
                   </div>
                   <div className="button-row">
                     <Link className="button-link secondary" to={`/feedback/${s.id}`}>
+                      <Icon icon={open ? Pencil : Eye} size={14} />
                       {open ? 'Edit' : 'View'}
                     </Link>
                     {open && (
@@ -185,6 +189,7 @@ export default function FeedbackHome() {
                         disabled={busyId === s.id}
                         onClick={() => handleWithdraw(s.id)}
                       >
+                        <Icon icon={Trash2} size={14} />
                         {busyId === s.id ? 'Withdrawing…' : 'Withdraw'}
                       </button>
                     )}

@@ -4,15 +4,18 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import ConfigError from './components/ConfigError'
 import { AuthProvider } from './context/AuthContext'
+import { ToastProvider } from './context/ToastContext'
 import { isSupabaseConfigured } from './lib/supabase'
 import './styles.css'
 
 // Guard before mounting: AuthProvider would otherwise dereference a null client.
 const tree = isSupabaseConfigured ? (
   <BrowserRouter>
-    <AuthProvider>
-      <App />
-    </AuthProvider>
+    <ToastProvider>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </ToastProvider>
   </BrowserRouter>
 ) : (
   <ConfigError />

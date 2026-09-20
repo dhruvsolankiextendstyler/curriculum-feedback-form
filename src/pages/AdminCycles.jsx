@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import AdminNav from '../components/AdminNav'
+import { Check, Pencil, Plus, X, XCircle, Zap } from 'lucide'
+import Icon from '../components/Icon'
+import { useToast } from '../context/ToastContext'
 import {
   activateCycle,
   closeCycleNow,
@@ -26,25 +28,27 @@ export const analyticsPathFor = (cycleId) =>
 
 export default function AdminCycles() {
   const navigate = useNavigate()
+  const toast = useToast()
   const [cycles, setCycles] = useState([])
   const [counts, setCounts] = useState({})
-  const [state, setState] = useState({ loading: true, error: null })
+  const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)
   const [creating, setCreating] = useState(false)
   const [sort, setSort] = useState('recent')
 
   const refresh = useCallback(async () => {
-    setState({ loading: true, error: null })
+    setLoading(true)
     try {
       const [rows, tally] = await Promise.all([loadCycles(), loadCycleCounts()])
       setCycles(rows)
       setCounts(tally)
-      setState({ loading: false, error: null })
     } catch (err) {
-      setState({ loading: false, error: err.message })
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     refresh()
@@ -59,7 +63,7 @@ export default function AdminCycles() {
       setNotice(message)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -77,16 +81,10 @@ export default function AdminCycles() {
   return (
     <section>
       <h1>Feedback cycles</h1>
-      <AdminNav />
 
       {notice && (
         <div className="notice success" role="status">
           <p>{notice}</p>
-        </div>
-      )}
-      {state.error && (
-        <div className="notice error" role="alert">
-          <p>{state.error}</p>
         </div>
       )}
 
@@ -99,6 +97,7 @@ export default function AdminCycles() {
         </p>
         <div className="button-row">
           <button type="button" onClick={() => setCreating((v) => !v)}>
+            <Icon icon={creating ? X : Plus} size={16} />
             {creating ? 'Cancel' : 'New cycle'}
           </button>
         </div>
@@ -128,7 +127,7 @@ export default function AdminCycles() {
         />
       )}
 
-      {state.loading ? (
+      {loading ? (
         <p className="muted">Loading cycles…</p>
       ) : cycles.length === 0 ? (
         <p className="muted">
@@ -204,6 +203,7 @@ export default function AdminCycles() {
                           className="secondary"
                           onClick={() => setEditing(cycle)}
                         >
+                          <Icon icon={Pencil} size={14} />
                           Edit
                         </button>
                         {!cycle.is_active && status !== 'closed' && (
@@ -217,6 +217,7 @@ export default function AdminCycles() {
                               )
                             }
                           >
+                            <Icon icon={Zap} size={14} />
                             Make active
                           </button>
                         )}
@@ -226,6 +227,7 @@ export default function AdminCycles() {
                             className="secondary danger"
                             onClick={() => handleClose(cycle)}
                           >
+                            <Icon icon={XCircle} size={14} />
                             Close now
                           </button>
                         )}
@@ -314,9 +316,11 @@ function CycleForm({ cycle, onSubmit, onCancel }) {
 
         <div className="button-row">
           <button type="submit" disabled={busy}>
+            <Icon icon={Check} size={16} />
             {busy ? 'Saving…' : isNew ? 'Create cycle' : 'Save changes'}
           </button>
           <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
+            <Icon icon={X} size={16} />
             Cancel
           </button>
         </div>

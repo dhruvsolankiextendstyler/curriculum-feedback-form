@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import AdminNav from '../components/AdminNav'
+import {
+  BarChart3, Download, Eye, FilterX, MessageSquareText, TrendingUp,
+} from 'lucide'
+import Icon from '../components/Icon'
+import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
+import { isHod } from '../lib/constants'
 import {
   BreakdownBars, BreakdownPie, ChoiceChart, DistributionChart,
   QuestionAverages, SentimentPie, TopTermsChart, TrendChart,
@@ -35,11 +41,11 @@ import { ROLE_LABELS } from '../lib/constants'
  */
 
 const TABS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'ratings', label: 'Ratings' },
-  { id: 'trends', label: 'Trends' },
-  { id: 'feedback', label: 'Feedback' },
-  { id: 'export', label: 'Export' },
+  { id: 'overview', label: 'Overview', icon: Eye },
+  { id: 'ratings', label: 'Ratings', icon: BarChart3 },
+  { id: 'trends', label: 'Trends', icon: TrendingUp },
+  { id: 'feedback', label: 'Feedback', icon: MessageSquareText },
+  { id: 'export', label: 'Export', icon: Download },
 ]
 
 const EMPTY_FILTERS = {
@@ -55,20 +61,42 @@ export default function Analytics() {
   // `?cycle=<id>` is how the Cycles page hands one year over, and it is what
   // makes a filtered view a link an admin can bookmark or send to a colleague.
   const [searchParams, setSearchParams] = useSearchParams()
+  const { profile, role } = useAuth()
+
+  // FR-3 scope: an HOD only ever sees their own department. The department (and
+  // its stream) is pinned to their profile and not theirs to change — the
+  // pickers are removed and every slice is forced through it. RLS enforces the
+  // same server-side, so this is about not offering a control that would only
+  // ever produce an empty or refused view.
+  const hod = isHod(role)
+  const lockedDepartmentId = hod ? (profile?.department_id ?? '') : ''
 
   const [tab, setTab] = useState('overview')
   const [filters, setFilters] = useState(() => ({
     ...EMPTY_FILTERS,
     cycleId: searchParams.get('cycle') ?? '',
+    departmentId: lockedDepartmentId,
   }))
   const [options, setOptions] = useState(null)
   const [error, setError] = useState(null)
+  const toast = useToast()
+
+  // The profile can arrive after this mounts, so the initial state above may not
+  // yet know the HOD's department. Pin it the moment it is known.
+  useEffect(() => {
+    if (!hod || !lockedDepartmentId) return
+    setFilters((current) =>
+      current.departmentId === lockedDepartmentId
+        ? current
+        : { ...current, departmentId: lockedDepartmentId, streamId: '' },
+    )
+  }, [hod, lockedDepartmentId])
 
   useEffect(() => {
     let active = true
     loadFilterOptions()
       .then((data) => active && setOptions(data))
-      .catch((e) => active && setError(e.message))
+      .catch((e) => { if (active) { toast.error(e.message); setError(e.message) } })
     return () => {
       active = false
     }
@@ -102,17 +130,39 @@ export default function Analytics() {
     (department) => !filters.streamId || department.streamId === filters.streamId,
   )
 
-  const hasFilters = Object.values(filters).some(Boolean)
+  // The HOD's own department, resolved for the read-only label.
+  const lockedDepartment =
+    hod && lockedDepartmentId
+      ? (options?.departments ?? []).find((d) => d.id === lockedDepartmentId) ?? null
+      : null
+
+  // The pinned department is not a "filter" the Clear button should offer to
+  // remove — it is the fixed scope of the whole page for an HOD.
+  const hasFilters = Object.entries(filters).some(
+    ([key, value]) => Boolean(value) && !(hod && key === 'departmentId'),
+  )
+
+  const clearFilters = () => {
+    setFilters({ ...EMPTY_FILTERS, departmentId: lockedDepartmentId })
+    setSearchParams({}, { replace: true })
+  }
 
   return (
     <section>
       <h1>Analytics</h1>
-      <AdminNav />
 
-      {error && (
-        <div className="notice error" role="alert">
-          <p>{error}</p>
-        </div>
+      {error && <p className="muted">Could not load filter options.</p>}
+
+      {hod && (
+        <p className="muted">
+          Showing feedback for{' '}
+          <strong>
+            {lockedDepartment
+              ? describeDepartment(lockedDepartment)
+              : 'your department'}
+          </strong>{' '}
+          only. The department is fixed to the one you head.
+        </p>
       )}
 
       <div className="card">
@@ -144,43 +194,62 @@ export default function Analytics() {
               ))}
             </select>
           </div>
-          <div>
-            <label htmlFor="f-stream">Stream</label>
-            <select
-              id="f-stream"
-              value={filters.streamId}
-              onChange={(event) =>
-                setFilters((current) => ({
-                  ...current,
-                  streamId: event.target.value,
-                  departmentId: '',
-                }))
-              }
-            >
-              <option value="">All streams</option>
-              {(options?.streams ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                  {s.isActive ? '' : ' (archived)'}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!hod && (
+            <div>
+              <label htmlFor="f-stream">Stream</label>
+              <select
+                id="f-stream"
+                value={filters.streamId}
+                onChange={(event) =>
+                  setFilters((current) => ({
+                    ...current,
+                    streamId: event.target.value,
+                    departmentId: '',
+                  }))
+                }
+              >
+                <option value="">All streams</option>
+                {(options?.streams ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.isActive ? '' : ' (archived)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label htmlFor="f-department">Department</label>
-            <select
-              id="f-department"
-              value={filters.departmentId}
-              onChange={setFilter('departmentId')}
-            >
-              <option value="">All departments</option>
-              {departmentOptions.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {describeDepartment(d)}
-                  {d.isActive ? '' : ' (archived)'}
-                </option>
-              ))}
-            </select>
+            {hod ? (
+              // Fixed to the HOD's own department: shown, not editable.
+              <input
+                id="f-department"
+                type="text"
+                readOnly
+                disabled
+                value={
+                  lockedDepartment
+                    ? describeDepartment(lockedDepartment)
+                    : lockedDepartmentId
+                      ? 'Your department'
+                      : 'No department assigned'
+                }
+              />
+            ) : (
+              <select
+                id="f-department"
+                value={filters.departmentId}
+                onChange={setFilter('departmentId')}
+              >
+                <option value="">All departments</option>
+                {departmentOptions.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {describeDepartment(d)}
+                    {d.isActive ? '' : ' (archived)'}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div>
             <label htmlFor="f-program">Program</label>
@@ -201,14 +270,8 @@ export default function Analytics() {
             </select>
           </div>
           {hasFilters && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setFilters(EMPTY_FILTERS)
-                setSearchParams({}, { replace: true })
-              }}
-            >
+            <button type="button" className="secondary" onClick={clearFilters}>
+              <Icon icon={FilterX} size={16} />
               Clear
             </button>
           )}
@@ -241,6 +304,7 @@ export default function Analytics() {
             className={`tab${tab === t.id ? ' active' : ''}`}
             onClick={() => setTab(t.id)}
           >
+            <Icon icon={t.icon} size={16} />
             {t.label}
           </button>
         ))}
@@ -263,6 +327,7 @@ export default function Analytics() {
  * later one and render figures for the wrong slice.
  */
 function useAnalytics(loader, filters) {
+  const toast = useToast()
   const [state, setState] = useState({ loading: true, error: null, data: null })
   const key = JSON.stringify(filters)
   const run = useCallback(loader, [])
@@ -273,7 +338,7 @@ function useAnalytics(loader, filters) {
 
     run(JSON.parse(key))
       .then((data) => active && setState({ loading: false, error: null, data }))
-      .catch((e) => active && setState({ loading: false, error: e.message, data: null }))
+      .catch((e) => { if (active) { toast.error(e.message); setState({ loading: false, error: e.message, data: null }) } })
 
     return () => {
       active = false
@@ -285,13 +350,7 @@ function useAnalytics(loader, filters) {
 
 function Panel({ state, children, empty = 'Nothing to show for this selection.' }) {
   if (state.loading) return <p className="muted">Loading…</p>
-  if (state.error) {
-    return (
-      <div className="notice error" role="alert">
-        <p>{state.error}</p>
-      </div>
-    )
-  }
+  if (state.error) return <p className="muted">Something went wrong loading this section.</p>
   if (!state.data) return <p className="muted">{empty}</p>
   return children(state.data)
 }
@@ -768,6 +827,7 @@ function FeedbackTab({ filters }) {
 
 /** FR-42. */
 function ExportTab({ filters, options }) {
+  const toast = useToast()
   const [state, setState] = useState({ busy: false, error: null, done: null })
 
   async function download() {
@@ -793,7 +853,8 @@ function ExportTab({ filters, options }) {
 
       setState({ busy: false, error: null, done: { rowCount, excludedIdentityRows, truncated } })
     } catch (e) {
-      setState({ busy: false, error: e.message, done: null })
+      toast.error(e.message)
+      setState({ busy: false, error: null, done: null })
     }
   }
 
@@ -811,11 +872,6 @@ function ExportTab({ filters, options }) {
         controls, and NFR-4 keeps personal data inside them.
       </p>
 
-      {state.error && (
-        <div className="notice error" role="alert">
-          <p>{state.error}</p>
-        </div>
-      )}
       {state.done && (
         <div className="notice success" role="status">
           <p>
@@ -833,6 +889,7 @@ function ExportTab({ filters, options }) {
       )}
 
       <button type="button" onClick={download} disabled={state.busy}>
+        <Icon icon={Download} size={16} />
         {state.busy ? 'Preparing…' : 'Download CSV'}
       </button>
     </div>

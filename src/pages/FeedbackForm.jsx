@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { ArrowLeft, Inbox, MessageSquare, Send } from 'lucide'
+import Icon from '../components/Icon'
 import QuestionField from '../components/QuestionField'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { loadForm } from '../lib/formSchema'
 import { accountIdentity, PREFILL_HINTS, prefillIdentity } from '../lib/prefill'
 import {
@@ -29,6 +32,7 @@ export default function FeedbackForm() {
   const [searchParams] = useSearchParams()
   const scope = searchParams.get('scope') // 'college', 'department', or null (all)
   const { user, role, profile } = useAuth()
+  const toast = useToast()
   const navigate = useNavigate()
 
   const [schema, setSchema] = useState(null)
@@ -125,7 +129,7 @@ export default function FeedbackForm() {
         setPrefill(applied)
         setStatus({ phase: 'ready', message: null })
       } catch (err) {
-        if (active) setStatus({ phase: 'error', message: err.message })
+        if (active) { toast.error(err.message); setStatus({ phase: 'error', message: err.message }) }
       }
     }
 
@@ -223,10 +227,10 @@ export default function FeedbackForm() {
       setStatus({ phase: 'saved', message: null })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
+      toast.error(err.message)
       setStatus({
         phase: 'ready',
         message: err.message,
-        // 23505 means this course already has a submission; offer to open it.
         duplicate: err.code === '23505',
       })
       requestAnimationFrame(() => errorSummary.current?.focus())
@@ -238,13 +242,10 @@ export default function FeedbackForm() {
 
   if (status.phase === 'error') {
     return (
-      <div className="notice error" role="alert">
-        <h2>Could not open this form</h2>
-        <p>{status.message}</p>
-        <p>
-          <Link to="/feedback">Back to my submissions</Link>
-        </p>
-      </div>
+      <p className="muted centered">
+        Could not open this form.{' '}
+        <Link to="/feedback">Back to my submissions</Link>
+      </p>
     )
   }
 
@@ -254,7 +255,7 @@ export default function FeedbackForm() {
         <h2>No open feedback cycle</h2>
         <p>There is no active cycle right now, so feedback cannot be submitted.</p>
         <p>
-          <Link to="/feedback">Back to my submissions</Link>
+          <Link to="/feedback"><Icon icon={ArrowLeft} size={14} /> Back to my submissions</Link>
         </p>
       </div>
     )
@@ -274,7 +275,7 @@ export default function FeedbackForm() {
         </p>
         <div className="button-row">
           <Link className="button-link" to="/feedback">
-            My submissions
+            <Icon icon={Inbox} size={16} /> My submissions
           </Link>
           {scope !== 'department' && (
             <button
@@ -288,7 +289,7 @@ export default function FeedbackForm() {
                 navigate(`/feedback/new${scope ? `?scope=${scope}` : ''}`)
               }}
             >
-              Give feedback for another course
+              <Icon icon={MessageSquare} size={16} /> Give feedback for another course
             </button>
           )}
         </div>
@@ -398,6 +399,7 @@ export default function FeedbackForm() {
         {!readOnly && (
           <div className="button-row sticky-actions">
             <button type="submit" disabled={status.phase === 'saving'}>
+              <Icon icon={Send} size={16} />
               {status.phase === 'saving'
                 ? 'Saving…'
                 : isEditing
@@ -405,14 +407,14 @@ export default function FeedbackForm() {
                   : 'Submit feedback'}
             </button>
             <Link className="button-link secondary" to="/feedback">
-              Cancel
+              <Icon icon={ArrowLeft} size={16} /> Cancel
             </Link>
           </div>
         )}
 
         {readOnly && (
           <p>
-            <Link to="/feedback">Back to my submissions</Link>
+            <Link to="/feedback"><Icon icon={ArrowLeft} size={14} /> Back to my submissions</Link>
           </p>
         )}
       </form>

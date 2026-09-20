@@ -24,7 +24,7 @@ const {
 } = await load('src/lib/analytics/scales.js')
 const { createClassifier, POSITIVE_AT, NEGATIVE_AT } = await load('src/lib/analytics/sentiment.js')
 const { buildInsights, topTerms, MIN_N } = await load('src/lib/analytics/insights.js')
-const { buildCsv, IDENTITY_KEYS, BOM, fileName } = await load('src/lib/analytics/csv.js')
+const { buildCsv, IDENTITY_KEYS, BOM, fileName, COLUMNS } = await load('src/lib/analytics/csv.js')
 
 let passed = 0
 const check = (label, fn) => {
@@ -452,7 +452,7 @@ check('the file name reflects the filters', () => {
 check('an empty export still produces a header row', () => {
   const { csv, rowCount } = buildCsv([])
   assert.equal(rowCount, 0)
-  assert.ok(csv.startsWith('Response ID'))
+  assert.ok(csv.startsWith(COLUMNS[0].label))
 })
 
 console.log(`\n${passed} analytics checks passed\n`)

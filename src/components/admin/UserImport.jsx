@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Download, FileSpreadsheet, FilterX, Plus, UserPlus, Users } from 'lucide'
+import Icon from '../Icon'
 import Papa from 'papaparse'
 import { useAuth } from '../../context/AuthContext'
 import {
@@ -55,7 +57,7 @@ export default function UserImport({ create, onDone, onError, tree = EMPTY_TREE 
           className={`tab${mode === 'single' ? ' active' : ''}`}
           onClick={() => setMode('single')}
         >
-          One user
+          <Icon icon={UserPlus} size={16} /> One user
         </button>
         <button
           type="button"
@@ -64,7 +66,7 @@ export default function UserImport({ create, onDone, onError, tree = EMPTY_TREE 
           className={`tab${mode === 'csv' ? ' active' : ''}`}
           onClick={() => setMode('csv')}
         >
-          CSV import
+          <Icon icon={FileSpreadsheet} size={16} /> CSV import
         </button>
       </div>
 
@@ -324,6 +326,7 @@ function SingleUser({ create, onDone, onError, tree, scope }) {
       />
 
       <button type="submit" disabled={busy}>
+        <Icon icon={Plus} size={16} />
         {busy ? 'Adding...' : 'Add user'}
       </button>
 
@@ -495,7 +498,7 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
 
       <div className="button-row">
         <button type="button" className="secondary" onClick={downloadTemplate}>
-          Download template
+          <Icon icon={Download} size={16} /> Download template
         </button>
       </div>
 
@@ -513,7 +516,7 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
         <div className="notice success credential-result" role="status">
           <p>{credentials.length} temporary password file ready.</p>
           <button type="button" className="secondary" onClick={downloadCredentials}>
-            Download temporary passwords
+            <Icon icon={Download} size={16} /> Download temporary passwords
           </button>
         </div>
       )}
@@ -571,6 +574,7 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
               onClick={handleCreate}
               disabled={busy || !preview.valid.length}
             >
+              <Icon icon={Users} size={16} />
               {busy
                 ? `Adding... ${progress?.done ?? 0}/${progress?.total ?? 0}`
                 : `Add ${preview.valid.length} user${preview.valid.length === 1 ? '' : 's'}`}
@@ -584,7 +588,7 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
                 if (fileRef.current) fileRef.current.value = ''
               }}
             >
-              Clear
+              <Icon icon={FilterX} size={16} /> Clear
             </button>
           </div>
 

@@ -5,6 +5,17 @@ import {
 import { axisFor, formatAvg, formatNormalised, spansVersions } from '../../lib/analytics/scales'
 
 const SERIES = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95']
+
+/* Bars reveal by growing in, like the Recharts AnimatedBarTimeSeries example.
+   (animationMatchBy/animationInterpolateFn from that demo are v3-only; this repo
+   is on recharts 2, where animationDuration + ease-out gives the same grow-in.)
+   Spread onto every <Bar>. */
+const BAR_ANIM = {
+  isAnimationActive: true,
+  animationBegin: 150,
+  animationDuration: 1200,
+  animationEasing: 'ease-out',
+}
 const PIE_COLORS = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95', '#5b9bd5', '#70ad47']
 const SENTIMENT_COLORS = { positive: '#4a9c7d', neutral: '#7d8b95', negative: '#c0504d', none: '#d8dce3' }
 
@@ -64,7 +75,7 @@ export function BreakdownBars({ data, height }) {
         <XAxis type="number" allowDecimals={false} />
         <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 12 }} />
         <Tooltip />
-        <Bar dataKey="value" name="Responses" fill={SERIES[0]} radius={[0, 3, 3, 0]}>
+        <Bar dataKey="value" name="Responses" fill={SERIES[0]} radius={[0, 3, 3, 0]} {...BAR_ANIM}>
           {data.map((_, i) => (
             <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
           ))}
@@ -123,7 +134,7 @@ export function TopTermsChart({ terms, height }) {
         <XAxis type="number" allowDecimals={false} />
         <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
         <Tooltip />
-        <Bar dataKey="value" name="Mentions" fill={SERIES[1]} radius={[0, 3, 3, 0]} />
+        <Bar dataKey="value" name="Mentions" fill={SERIES[1]} radius={[0, 3, 3, 0]} {...BAR_ANIM} />
       </BarChart>
     </ResponsiveContainer>
   )
@@ -151,7 +162,7 @@ export function QuestionAverages({ rows }) {
           <XAxis type="number" domain={axis.domain} allowDecimals />
           <YAxis type="category" dataKey="label" width={230} tick={{ fontSize: 12 }} />
           <Tooltip content={<AverageTooltip normalised={axis.normalised} />} />
-          <Bar dataKey="value" fill={SERIES[0]} radius={[0, 3, 3, 0]}>
+          <Bar dataKey="value" fill={SERIES[0]} radius={[0, 3, 3, 0]} {...BAR_ANIM}>
             {data.map((entry) => (
               <Cell
                 key={entry.key}
@@ -207,7 +218,7 @@ export function DistributionChart({ rows, questionKey }) {
         <XAxis dataKey="label" tick={{ fontSize: 12 }} interval={0} />
         <YAxis allowDecimals={false} />
         <Tooltip />
-        <Bar dataKey="n" name="Answers" radius={[3, 3, 0, 0]}>
+        <Bar dataKey="n" name="Answers" radius={[3, 3, 0, 0]} {...BAR_ANIM}>
           {data.map((entry) => (
             <Cell key={entry.label} fill={entry.scoring ? SERIES[0] : SERIES[5]} />
           ))}
@@ -320,7 +331,7 @@ export function ChoiceChart({ rows, questionKey }) {
         <XAxis type="number" allowDecimals={false} />
         <YAxis type="category" dataKey="label" width={190} tick={{ fontSize: 12 }} />
         <Tooltip />
-        <Bar dataKey="n" name="Chosen by" fill={SERIES[1]} radius={[0, 3, 3, 0]} />
+        <Bar dataKey="n" name="Chosen by" fill={SERIES[1]} radius={[0, 3, 3, 0]} {...BAR_ANIM} />
       </BarChart>
     </ResponsiveContainer>
   )

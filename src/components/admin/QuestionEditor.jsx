@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import { Check, Plus, Trash2, X } from 'lucide'
+import Icon from '../Icon'
 import {
   requiresNewVersion,
   slugifyOptionValue,
@@ -181,10 +183,11 @@ export default function QuestionEditor({ question, scales, answerCount, onSave, 
 
         <div className="button-row">
           <button type="submit" disabled={busy}>
+            <Icon icon={Check} size={16} />
             {busy ? 'Saving…' : willVersion ? 'Save as new version' : 'Save'}
           </button>
           <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
+            <Icon icon={X} size={16} /> Cancel
           </button>
         </div>
       </form>
@@ -248,7 +251,7 @@ function OptionEditor({ options, error, onChange }) {
               aria-label={`Remove option ${i + 1}`}
               onClick={() => onChange(options.filter((_, idx) => idx !== i))}
             >
-              Remove
+              <Icon icon={Trash2} size={14} /> Remove
             </button>
           </li>
         ))}
@@ -260,7 +263,7 @@ function OptionEditor({ options, error, onChange }) {
           className="secondary"
           onClick={() => onChange([...options, { label: '', value: '' }])}
         >
-          Add option
+          <Icon icon={Plus} size={14} /> Add option
         </button>
       </div>
       <p className="muted small">

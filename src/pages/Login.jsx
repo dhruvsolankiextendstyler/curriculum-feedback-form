@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, KeyRound, LogIn } from 'lucide'
+import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { safeRedirect } from '../lib/constants'
 
 export default function Login() {
   const { session, role, loading, signIn, resetPassword } = useAuth()
+  const toast = useToast()
   const navigate = useNavigate()
   const location = useLocation()
 
   // FR-1: one field, either identifier. AuthContext decides which it is.
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [notice, setNotice] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -24,14 +28,13 @@ export default function Login() {
   async function handleSubmit(event) {
     event.preventDefault()
     setBusy(true)
-    setError(null)
     setNotice(null)
 
     const { error: signInError } = await signIn(identifier, password)
     setBusy(false)
 
     if (signInError) {
-      setError(signInError.message)
+      toast.error(signInError.message)
       return
     }
     navigate('/', { replace: true })
@@ -42,14 +45,13 @@ export default function Login() {
   // does not tell the browser which address the link will go to, hence "its".
   async function handleReset() {
     if (!identifier.trim()) {
-      setError('Enter your email address or SAP ID first, then choose "Forgot password".')
+      toast.error('Enter your email address or SAP ID first, then choose "Forgot password".')
       return
     }
     setBusy(true)
-    setError(null)
     const { error: resetError } = await resetPassword(identifier)
     setBusy(false)
-    if (resetError) setError(resetError.message)
+    if (resetError) toast.error(resetError.message)
     else setNotice('If that account exists, a reset link is on its way to its email address.')
   }
 
@@ -78,20 +80,27 @@ export default function Login() {
         </p>
 
         <label htmlFor="password">Password</label>
-        <input
-          id="password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="password-field">
+          <input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-pressed={showPassword}
+            title={showPassword ? 'Hide password' : 'Show password'}
+          >
+            <Icon icon={showPassword ? EyeOff : Eye} size={18} />
+          </button>
+        </div>
 
-        {error && (
-          <p className="field-error" role="alert">
-            {error}
-          </p>
-        )}
         {notice && (
           <p className="field-notice" role="status">
             {notice}
@@ -99,6 +108,7 @@ export default function Login() {
         )}
 
         <button type="submit" disabled={busy}>
+          <Icon icon={LogIn} size={16} />
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
         <button
@@ -107,7 +117,7 @@ export default function Login() {
           onClick={handleReset}
           disabled={busy}
         >
-          Forgot password?
+          <Icon icon={KeyRound} size={14} /> Forgot password?
         </button>
       </form>
     </main>

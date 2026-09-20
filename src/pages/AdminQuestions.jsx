@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import AdminNav from '../components/AdminNav'
+import {
+  ArrowDown, ArrowUp, Check, ChevronDown, ChevronUp, Clock, Copy,
+  Pencil, Plus, RotateCcw, Trash2, X,
+} from 'lucide'
+import Icon from '../components/Icon'
 import QuestionEditor from '../components/admin/QuestionEditor'
 import QuestionHistory from '../components/admin/QuestionHistory'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import { isAdmin, RESPONDENT_ROLES, ROLE_LABELS } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import {
@@ -101,6 +106,7 @@ async function loadCurriculumPdfForAdmin(formId, departmentId) {
  */
 export default function AdminQuestions() {
   const { user, profile, role } = useAuth()
+  const toast = useToast()
   const admin = isAdmin(role)
 
   const [forms, setForms] = useState([])
@@ -109,7 +115,7 @@ export default function AdminQuestions() {
   const [tree, setTree] = useState(EMPTY_TREE)
   const [questions, setQuestions] = useState([])
   const [scales, setScales] = useState([])
-  const [state, setState] = useState({ loading: true, error: null })
+  const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null) // question object, or 'new'
   const [answerCount, setAnswerCount] = useState(0)
@@ -144,7 +150,7 @@ export default function AdminQuestions() {
         // An HOD opens on their own set: it is the only one they can write.
         if (!admin && profile?.department_id) setDepartmentId(profile.department_id)
       } catch (err) {
-        if (active) setState({ loading: false, error: err.message })
+        if (active) { setLoading(false); toast.error(err.message) }
       }
     })()
     return () => {
@@ -154,7 +160,7 @@ export default function AdminQuestions() {
 
   const refresh = useCallback(async () => {
     if (!formId) return
-    setState({ loading: true, error: null })
+    setLoading(true)
     try {
       const [qs, pdf] = await Promise.all([
         loadQuestionsForAdmin(formId, departmentId),
@@ -162,9 +168,10 @@ export default function AdminQuestions() {
       ])
       setQuestions(qs)
       setPdfPath(pdf)
-      setState({ loading: false, error: null })
+      setLoading(false)
     } catch (err) {
-      setState({ loading: false, error: err.message })
+      setLoading(false)
+      toast.error(err.message)
     }
   }, [formId, departmentId])
 
@@ -207,7 +214,7 @@ export default function AdminQuestions() {
       setPdfPath(path)
       setNotice('Curriculum PDF uploaded.')
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     } finally {
       setPdfBusy(false)
       event.target.value = ''
@@ -223,7 +230,7 @@ export default function AdminQuestions() {
       setPdfPath(null)
       setNotice('Curriculum PDF removed.')
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     } finally {
       setPdfBusy(false)
     }
@@ -272,7 +279,7 @@ export default function AdminQuestions() {
       setEditing(null)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -301,7 +308,7 @@ export default function AdminQuestions() {
       setCopying(null)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -319,7 +326,7 @@ export default function AdminQuestions() {
       setNotice('Question removed from the form. Its history is preserved.')
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -329,7 +336,7 @@ export default function AdminQuestions() {
       setNotice('Question restored at the end of the form. Move it if it belongs elsewhere.')
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -358,7 +365,7 @@ export default function AdminQuestions() {
       await reorderQuestions(wholeSet.map((q) => q.id), user.id)
       await refresh()
     } catch (err) {
-      setState((s) => ({ ...s, error: err.message }))
+      toast.error(err.message)
       await refresh()
     }
   }
@@ -369,19 +376,12 @@ export default function AdminQuestions() {
   return (
     <section>
       <h1>Forms</h1>
-      <AdminNav />
 
       {notice && (
         <div className="notice success" role="status">
           <p>{notice}</p>
         </div>
       )}
-      {state.error && (
-        <div className="notice error" role="alert">
-          <p>{state.error}</p>
-        </div>
-      )}
-
       <div className="card filters">
         <div className="grow">
           <label htmlFor="form-select">Form</label>
@@ -441,7 +441,7 @@ export default function AdminQuestions() {
             onClick={() => openEditor(null)}
             disabled={!formId || readOnly}
           >
-            Add question
+            <Icon icon={Plus} size={16} /> Add question
           </button>
         </div>
       </div>
@@ -515,9 +515,12 @@ export default function AdminQuestions() {
         )}
       </div>
 
-      {editing && (
+      {/* Adding a new question has no row to expand into, so its editor opens
+          here at the top. Editing an existing question expands in place, inside
+          that question's row below. */}
+      {editing === 'new' && (
         <QuestionEditor
-          question={editing === 'new' ? null : editing}
+          question={null}
           scales={scales}
           answerCount={answerCount}
           onSave={handleSave}
@@ -543,7 +546,7 @@ export default function AdminQuestions() {
         <QuestionHistory question={historyFor} onClose={() => setHistoryFor(null)} />
       )}
 
-      {state.loading ? (
+      {loading ? (
         <p className="muted">Loading questions…</p>
       ) : (
         <>
@@ -554,7 +557,18 @@ export default function AdminQuestions() {
           </p>
 
           <ol className="question-list">
-            {activeQuestions.map((q, i) => (
+            {activeQuestions.map((q, i) =>
+              editing !== 'new' && editing?.id === q.id ? (
+                <li key={q.id} className="question-edit-row">
+                  <QuestionEditor
+                    question={editing}
+                    scales={scales}
+                    answerCount={answerCount}
+                    onSave={handleSave}
+                    onCancel={() => setEditing(null)}
+                  />
+                </li>
+              ) : (
               <li key={q.id} className="card question-row">
                 <div className="question-main">
                   <div className="question-meta">
@@ -594,7 +608,7 @@ export default function AdminQuestions() {
                         disabled={i === 0}
                         onClick={() => move(i, -1)}
                       >
-                        ↑
+                        <Icon icon={ArrowUp} size={14} />
                       </button>
                       <button
                         type="button"
@@ -603,13 +617,13 @@ export default function AdminQuestions() {
                         disabled={i === activeQuestions.length - 1}
                         onClick={() => move(i, 1)}
                       >
-                        ↓
+                        <Icon icon={ArrowDown} size={14} />
                       </button>
                     </div>
                   )}
                   {!readOnly && (
                     <button type="button" className="secondary" onClick={() => openEditor(q)}>
-                      Edit
+                      <Icon icon={Pencil} size={14} /> Edit
                     </button>
                   )}
                   <button
@@ -617,13 +631,10 @@ export default function AdminQuestions() {
                     className="secondary"
                     onClick={() => setHistoryFor(q)}
                   >
-                    History
+                    <Icon icon={Clock} size={14} /> History
                   </button>
-                  {/* Copying OUT of a read-only set is allowed: it writes to the
-                      target, not here, and seeding a department from the
-                      college-wide set is the main reason an HOD wants it. */}
                   <button type="button" className="secondary" onClick={() => setCopying(q)}>
-                    Copy to…
+                    <Icon icon={Copy} size={14} /> Copy to…
                   </button>
                   {!readOnly && (
                     <button
@@ -631,7 +642,7 @@ export default function AdminQuestions() {
                       className="secondary danger"
                       onClick={() => handleDeactivate(q)}
                     >
-                      Remove
+                      <Icon icon={Trash2} size={14} /> Remove
                     </button>
                   )}
                 </div>
@@ -646,6 +657,7 @@ export default function AdminQuestions() {
                 className="secondary"
                 onClick={() => setShowDeleted((v) => !v)}
               >
+                <Icon icon={showDeleted ? ChevronUp : ChevronDown} size={16} />
                 {showDeleted ? 'Hide' : 'Show'} {deletedQuestions.length} removed question
                 {deletedQuestions.length === 1 ? '' : 's'}
               </button>
@@ -668,7 +680,7 @@ export default function AdminQuestions() {
                             className="secondary"
                             onClick={() => handleRestore(q)}
                           >
-                            Restore
+                            <Icon icon={RotateCcw} size={14} /> Restore
                           </button>
                         )}
                       </div>
@@ -776,10 +788,11 @@ function CopyPanel({
 
         <div className="button-row">
           <button type="submit" disabled={busy || sameSet}>
+            <Icon icon={Copy} size={16} />
             {busy ? 'Copying…' : 'Copy question'}
           </button>
           <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
-            Cancel
+            <Icon icon={X} size={16} /> Cancel
           </button>
         </div>
         {sameSet && (

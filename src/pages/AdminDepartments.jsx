@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import AdminNav from '../components/AdminNav'
+import { Archive, Check, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
+import Icon from '../components/Icon'
+import { useToast } from '../context/ToastContext'
 import {
   CODE_HINT,
   DEPARTMENT_SORTS,
@@ -30,8 +32,9 @@ import {
  * which of the two applies before clicking.
  */
 export default function AdminDepartments() {
+  const toast = useToast()
   const [data, setData] = useState({ streams: [], departments: [], usage: {} })
-  const [state, setState] = useState({ loading: true, error: null })
+  const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
   const [pick, setPick] = useState({ streamId: '', departmentId: '' })
   const [newStream, setNewStream] = useState('')
@@ -46,17 +49,18 @@ export default function AdminDepartments() {
   })
 
   const refresh = useCallback(async () => {
-    setState({ loading: true, error: null })
+    setLoading(true)
     try {
       const [tree, usage] = await Promise.all([loadDepartmentTree(), loadDepartmentUsage()])
       setData({ ...tree, usage })
-      setState({ loading: false, error: null })
       return tree
     } catch (err) {
-      setState({ loading: false, error: err.message })
+      toast.error(err.message)
       return null
+    } finally {
+      setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => {
     let active = true
@@ -128,13 +132,13 @@ export default function AdminDepartments() {
         if (message) setNotice(message)
         return result
       } catch (err) {
-        setState((current) => ({ ...current, error: err.message }))
+        toast.error(err.message)
         return null
       } finally {
         setBusy(false)
       }
     },
-    [refresh],
+    [refresh, toast],
   )
 
   async function handleAddStream(event) {
@@ -251,16 +255,10 @@ export default function AdminDepartments() {
   return (
     <section>
       <h1>Departments</h1>
-      <AdminNav />
 
       {notice && (
         <div className="notice success" role="status">
           <p>{notice}</p>
-        </div>
-      )}
-      {state.error && (
-        <div className="notice error" role="alert">
-          <p>{state.error}</p>
         </div>
       )}
 
@@ -272,7 +270,7 @@ export default function AdminDepartments() {
           what an admin assigns to a student or faculty account on the Users page.
         </p>
 
-        <div className="filters">
+        <div className="filters filters-stack">
           <div className="grow">
             <label htmlFor="pick-stream">Check streams</label>
             <select
@@ -302,7 +300,7 @@ export default function AdminDepartments() {
                 onChange={(event) => setNewStream(event.target.value)}
               />
               <button type="submit" disabled={busy || !newStream.trim()}>
-                Add
+                <Icon icon={Plus} size={14} /> Add
               </button>
             </form>
 
@@ -313,13 +311,14 @@ export default function AdminDepartments() {
                   className="secondary"
                   onClick={() => setEditing({ kind: 'stream', row: { ...pickedStream } })}
                 >
-                  Rename
+                  <Icon icon={Pencil} size={14} /> Rename
                 </button>
                 <button
                   type="button"
                   className="secondary"
                   onClick={() => setArchived(pickedStream, 'stream', pickedStream.is_active)}
                 >
+                  <Icon icon={pickedStream.is_active ? Archive : RotateCcw} size={14} />
                   {pickedStream.is_active ? 'Archive' : 'Restore'}
                 </button>
                 <button
@@ -327,7 +326,7 @@ export default function AdminDepartments() {
                   className="secondary danger"
                   onClick={() => handleDeleteStream(pickedStream)}
                 >
-                  Delete
+                  <Icon icon={Trash2} size={14} /> Delete
                 </button>
               </div>
             )}
@@ -382,7 +381,7 @@ export default function AdminDepartments() {
                 type="submit"
                 disabled={busy || !pick.streamId || !newDepartment.name.trim()}
               >
-                Add
+                <Icon icon={Plus} size={14} /> Add
               </button>
             </form>
             <p className="field-hint">
@@ -401,7 +400,7 @@ export default function AdminDepartments() {
                     setEditing({ kind: 'department', row: { ...pickedDepartment } })
                   }
                 >
-                  Edit {pickedDepartment.name}
+                  <Icon icon={Pencil} size={14} /> Edit {pickedDepartment.name}
                 </button>
               </div>
             )}
@@ -432,10 +431,11 @@ export default function AdminDepartments() {
             </p>
             <div className="button-row">
               <button type="submit" disabled={busy}>
+                <Icon icon={Check} size={16} />
                 {busy ? 'Saving…' : 'Save changes'}
               </button>
               <button type="button" className="secondary" onClick={() => setEditing(null)}>
-                Cancel
+                <Icon icon={X} size={16} /> Cancel
               </button>
             </div>
           </form>
@@ -506,17 +506,12 @@ export default function AdminDepartments() {
 
             <div className="button-row">
               <button type="submit" disabled={busy}>
+                <Icon icon={Check} size={16} />
                 {busy ? 'Saving…' : 'Save changes'}
               </button>
               <button type="button" className="secondary" onClick={() => setEditing(null)}>
-                Cancel
+                <Icon icon={X} size={16} /> Cancel
               </button>
-              {/* Archive and delete both live here so the choice is made in the
-                  same place as the rename, rather than only from the table below.
-                  handleDeleteDepartment does the asking: it checks what still
-                  references this row and offers archiving when a delete would be
-                  refused. `type="button"` on both — inside a <form>, the default
-                  is submit, which would save the draft on the way out. */}
               <button
                 type="button"
                 className="secondary"
@@ -525,6 +520,7 @@ export default function AdminDepartments() {
                   setArchived(editing.row, 'department', editing.row.is_active)
                 }
               >
+                <Icon icon={editing.row.is_active ? Archive : RotateCcw} size={14} />
                 {editing.row.is_active ? 'Archive' : 'Restore'}
               </button>
               <button
@@ -533,7 +529,7 @@ export default function AdminDepartments() {
                 disabled={busy}
                 onClick={() => handleDeleteDepartment(editing.row)}
               >
-                Delete department
+                <Icon icon={Trash2} size={14} /> Delete department
               </button>
             </div>
             <p className="field-hint">
@@ -608,7 +604,7 @@ export default function AdminDepartments() {
         </div>
       </div>
 
-      {state.loading ? (
+      {loading ? (
         <p className="muted">Loading departments…</p>
       ) : data.streams.length === 0 ? (
         <p className="muted">
@@ -671,13 +667,14 @@ export default function AdminDepartments() {
                           setEditing({ kind: 'department', row: { ...row } })
                         }}
                       >
-                        Edit
+                        <Icon icon={Pencil} size={14} /> Edit
                       </button>
                       <button
                         type="button"
                         className="secondary"
                         onClick={() => setArchived(row, 'department', row.is_active)}
                       >
+                        <Icon icon={row.is_active ? Archive : RotateCcw} size={14} />
                         {row.is_active ? 'Archive' : 'Restore'}
                       </button>
                       <button
@@ -685,7 +682,7 @@ export default function AdminDepartments() {
                         className="secondary danger"
                         onClick={() => handleDeleteDepartment(row)}
                       >
-                        Delete
+                        <Icon icon={Trash2} size={14} /> Delete
                       </button>
                     </td>
                   </tr>

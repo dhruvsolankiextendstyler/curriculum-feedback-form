@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import AdminNav from '../components/AdminNav'
+import { Ban, Check, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
+import Icon from '../components/Icon'
 import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
+import { useToast } from '../context/ToastContext'
 import {
   ASSIGNABLE_ROLES,
   HOD_CREATABLE_ROLES,
@@ -55,6 +57,7 @@ const FILTER_DEFAULTS = {
  */
 export default function AdminUsers() {
   const { user: currentUser, profile, role: currentRole } = useAuth()
+  const toast = useToast()
   const hod = isHod(currentRole)
 
   const [filters, setFilters] = useState({
@@ -64,7 +67,7 @@ export default function AdminUsers() {
   })
   const [users, setUsers] = useState([])
   const [tree, setTree] = useState(EMPTY_TREE)
-  const [state, setState] = useState({ loading: true, error: null })
+  const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)
   const [showImport, setShowImport] = useState(false)
@@ -114,7 +117,7 @@ export default function AdminUsers() {
   )
 
   const refresh = useCallback(async () => {
-    setState({ loading: true, error: null })
+    setLoading(true)
     try {
       setUsers(
         await loadUsers({
@@ -123,11 +126,12 @@ export default function AdminUsers() {
           departmentIds: departmentIdsForStream,
         }),
       )
-      setState({ loading: false, error: null })
     } catch (err) {
-      setState({ loading: false, error: err.message })
+      toast.error(err.message)
+    } finally {
+      setLoading(false)
     }
-  }, [filters, departmentIdsForStream])
+  }, [filters, departmentIdsForStream, toast])
 
   useEffect(() => {
     refresh()
@@ -143,7 +147,7 @@ export default function AdminUsers() {
       setNotice(`${target.email} is now ${next}.`)
       await refresh()
     } catch (err) {
-      setState((current) => ({ ...current, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -158,7 +162,7 @@ export default function AdminUsers() {
       setNotice(`${target.email} moved to Removed users.`)
       await refresh()
     } catch (err) {
-      setState((current) => ({ ...current, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -170,7 +174,7 @@ export default function AdminUsers() {
       setNotice(`${target.email} restored.`)
       await refresh()
     } catch (err) {
-      setState((current) => ({ ...current, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -201,7 +205,7 @@ export default function AdminUsers() {
       setEditing(null)
       await refresh()
     } catch (err) {
-      setState((current) => ({ ...current, error: err.message }))
+      toast.error(err.message)
     }
   }
 
@@ -221,7 +225,6 @@ export default function AdminUsers() {
   return (
     <section>
       <h1>Users</h1>
-      <AdminNav />
 
       {hod && (
         <p className="muted">
@@ -245,15 +248,11 @@ export default function AdminUsers() {
           <p>{notice}</p>
         </div>
       )}
-      {state.error && (
-        <div className="notice error" role="alert">
-          <p>{state.error}</p>
-        </div>
-      )}
 
       <div className="card">
         <div className="button-row">
           <button type="button" onClick={() => setShowImport((visible) => !visible)}>
+            <Icon icon={showImport ? X : Plus} size={16} />
             {showImport ? 'Hide add-user panel' : 'Add users'}
           </button>
         </div>
@@ -264,9 +263,7 @@ export default function AdminUsers() {
               setNotice(summary)
               await refresh()
             }}
-            onError={(message) =>
-              setState((current) => ({ ...current, error: message }))
-            }
+            onError={(message) => toast.error(message)}
             create={createUsers}
             tree={tree}
           />
@@ -405,7 +402,7 @@ export default function AdminUsers() {
         </div>
       </div>
 
-      {state.loading ? (
+      {loading ? (
         <p className="muted">Loading users...</p>
       ) : users.length === 0 ? (
         <p className="muted">No users match these filters.</p>
@@ -476,7 +473,7 @@ export default function AdminUsers() {
                             className="secondary"
                             onClick={() => handleRestore(user)}
                           >
-                            Restore
+                            <Icon icon={RotateCcw} size={14} /> Restore
                           </button>
                         )
                       ) : (
@@ -486,7 +483,7 @@ export default function AdminUsers() {
                             className="secondary"
                             onClick={() => startEditing(user)}
                           >
-                            Edit
+                            <Icon icon={Pencil} size={14} /> Edit
                           </button>
                           {user.id === currentUser?.id ? (
                             <span className="muted small">that&rsquo;s you</span>
@@ -500,6 +497,7 @@ export default function AdminUsers() {
                                   className="secondary"
                                   onClick={() => handleToggleStatus(user)}
                                 >
+                                  <Icon icon={user.status === 'active' ? Ban : CheckCircle} size={14} />
                                   {user.status === 'active' ? 'Deactivate' : 'Reactivate'}
                                 </button>
                                 <button
@@ -507,7 +505,7 @@ export default function AdminUsers() {
                                   className="secondary danger"
                                   onClick={() => handleRemove(user)}
                                 >
-                                  Remove
+                                  <Icon icon={Trash2} size={14} /> Remove
                                 </button>
                               </>
                             )
@@ -653,9 +651,9 @@ export default function AdminUsers() {
             )}
 
             <div className="button-row">
-              <button type="submit">Save changes</button>
+              <button type="submit"><Icon icon={Check} size={16} /> Save changes</button>
               <button type="button" className="secondary" onClick={() => setEditing(null)}>
-                Cancel
+                <Icon icon={X} size={16} /> Cancel
               </button>
             </div>
           </form>

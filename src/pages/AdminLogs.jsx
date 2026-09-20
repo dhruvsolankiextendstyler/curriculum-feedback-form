@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import AdminNav from '../components/AdminNav'
+import { FilterX } from 'lucide'
+import Icon from '../components/Icon'
 import { supabase } from '../lib/supabase'
+import { useToast } from '../context/ToastContext'
 
 const ACTION_LABELS = {
   created: 'Created',
@@ -11,6 +13,7 @@ const ACTION_LABELS = {
 }
 
 export default function AdminLogs() {
+  const toast = useToast()
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -36,6 +39,7 @@ export default function AdminLogs() {
 
       if (!active) return
       if (err) {
+        toast.error(err.message)
         setError(err.message)
       } else {
         setLogs(data ?? [])
@@ -79,14 +83,11 @@ export default function AdminLogs() {
   return (
     <section>
       <h1>Activity Log</h1>
-      <AdminNav />
       <p className="muted">
         Recent changes to form questions. Shows who changed what and when.
       </p>
 
-      {error && (
-        <div className="notice error" role="alert"><p>{error}</p></div>
-      )}
+      {error && <p className="muted">Something went wrong loading the logs.</p>}
 
       {!loading && logs.length > 0 && (
         <div className="card">
@@ -125,7 +126,7 @@ export default function AdminLogs() {
                 className="secondary"
                 onClick={() => { setActionFilter(''); setFormFilter(''); setSearch('') }}
               >
-                Clear
+                <Icon icon={FilterX} size={16} /> Clear
               </button>
             )}
           </div>
