@@ -75,44 +75,23 @@ export async function loadDepartmentTree() {
  * count too — the foreign key still holds.
  */
 export async function loadDepartmentUsage() {
-  const [profiles, responses, questions] = await Promise.all([
-    supabase.from('profiles').select('department_id, removed_at'),
-    supabase.from('responses').select('department_id'),
-    supabase.from('questions').select('department_id'),
-  ])
+  const { data, error } = await supabase.rpc('count_department_usage')
 
-  // The pre-migration window: report no usage rather than failing the page.
-  if (profiles.error || responses.error || questions.error) {
-    const error = profiles.error ?? responses.error ?? questions.error
+  if (error) {
     if (isMissingDepartmentColumn(error.message)) return {}
     throw new Error(translateDepartmentError(error))
   }
 
   const usage = {}
-  const row = (id) => {
-    usage[id] ??= { users: 0, removedUsers: 0, responses: 0, questions: 0, blocking: 0 }
-    return usage[id]
+  for (const row of data ?? []) {
+    usage[row.department_id] = {
+      users: Number(row.users),
+      removedUsers: Number(row.removed_users),
+      responses: Number(row.responses),
+      questions: Number(row.questions),
+      blocking: Number(row.blocking),
+    }
   }
-
-  for (const profile of profiles.data ?? []) {
-    if (!profile.department_id) continue
-    const entry = row(profile.department_id)
-    entry[profile.removed_at ? 'removedUsers' : 'users'] += 1
-    entry.blocking += 1
-  }
-  for (const response of responses.data ?? []) {
-    if (!response.department_id) continue
-    const entry = row(response.department_id)
-    entry.responses += 1
-    entry.blocking += 1
-  }
-  for (const question of questions.data ?? []) {
-    if (!question.department_id) continue
-    const entry = row(question.department_id)
-    entry.questions += 1
-    entry.blocking += 1
-  }
-
   return usage
 }
 

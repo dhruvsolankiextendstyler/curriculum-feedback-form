@@ -73,10 +73,23 @@ export const loadFilterOptions = (cycleId = null) =>
 export const loadTotals = (filters) => call('analytics_totals', params(filters))
 
 /** FR-36 + FR-34: per-question averages, denominators and version spread. */
-export async function loadQuestionStats(filters) {
-  const rows = (await call('analytics_question_stats', params(filters))) ?? []
-  rows.forEach(assertDenominators)
-  return rows
+const _questionStatsCache = { key: null, promise: null }
+export function loadQuestionStats(filters) {
+  const key = JSON.stringify(filters)
+  if (_questionStatsCache.key === key && _questionStatsCache.promise) {
+    return _questionStatsCache.promise
+  }
+  const promise = call('analytics_question_stats', params(filters)).then((data) => {
+    const rows = data ?? []
+    rows.forEach(assertDenominators)
+    return rows
+  })
+  _questionStatsCache.key = key
+  _questionStatsCache.promise = promise
+  promise.catch(() => {
+    if (_questionStatsCache.promise === promise) _questionStatsCache.promise = null
+  })
+  return promise
 }
 
 /** FR-38: Likert distributions, one row per (question, option). */
@@ -130,5 +143,17 @@ export async function loadExportRows(filters, { pageSize = 5000, maxRows = 20000
   // Hit the ceiling: say so rather than handing over a file that looks complete.
   return { rows: all, truncated: true }
 }
+
+/** Participation rates per (stakeholder, department). */
+export const loadParticipation = (filters) =>
+  call('analytics_participation', {
+    p_cycle_id: filters.cycleId || null,
+    p_stakeholder: filters.stakeholder || null,
+    p_stream_id: filters.streamId || null,
+    p_department_id: filters.departmentId || null,
+  })
+
+/** Normalised averages per (question, department) for the heatmap. */
+export const loadHeatmap = (filters) => call('analytics_heatmap', params(filters))
 
 export { assertDenominators }

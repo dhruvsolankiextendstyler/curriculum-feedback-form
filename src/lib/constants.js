@@ -49,7 +49,6 @@ export const isAdmin = (role) => role === ROLES.ADMIN
 export const isHod = (role) => role === ROLES.HOD
 /** May reach the admin panel at all — an admin or an HOD. */
 export const isStaff = (role) => isAdmin(role) || isHod(role)
-export const isRespondent = (role) => RESPONDENT_ROLES.includes(role)
 
 // FR-7: where a user lands after signing in.
 export const homePathFor = (role) => (isStaff(role) ? '/admin' : '/feedback')

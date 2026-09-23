@@ -412,23 +412,16 @@ export async function restoreQuestion(questionId, actorId) {
  * also holds, which is the tie a later FR-33 restore makes visible.
  */
 export async function reorderQuestions(orderedIds, actorId) {
-  const updates = orderedIds.map((id, i) =>
-    supabase
-      .from('questions')
-      .update({ display_order: i + 1 })
-      .eq('id', id)
-      .select('id'),
-  )
-  const results = await Promise.all(updates)
-  const failed = results.find((r) => r.error)
-  if (failed) throw new Error(translateQuestionError(failed.error))
-  if (results.some((r) => !r.data || r.data.length === 0)) {
-    throw new Error(NOTHING_WRITTEN)
-  }
+  if (orderedIds.length === 0) return
 
-  if (orderedIds.length > 0) {
-    await audit(orderedIds[0], 'reordered', actorId, { count: orderedIds.length })
-  }
+  const orders = orderedIds.map((_, i) => i + 1)
+  const { error } = await supabase.rpc('reorder_questions', {
+    p_ids: orderedIds,
+    p_orders: orders,
+  })
+  if (error) throw new Error(translateQuestionError(error))
+
+  await audit(orderedIds[0], 'reordered', actorId, { count: orderedIds.length })
 }
 
 async function versionRows(questionId) {
@@ -440,11 +433,6 @@ async function versionRows(questionId) {
 
   if (error) throw new Error(error.message)
   return data ?? []
-}
-
-/** FR-33: version history for one question, with who wrote each version. */
-export async function loadVersionHistory(questionId) {
-  return withActors(await versionRows(questionId), 'created_by')
 }
 
 /**
@@ -497,10 +485,6 @@ async function auditRows(questionId) {
 
   if (error) throw new Error(error.message)
   return data ?? []
-}
-
-export async function loadAuditTrail(questionId) {
-  return withActors(await auditRows(questionId), 'actor_id')
 }
 
 /**

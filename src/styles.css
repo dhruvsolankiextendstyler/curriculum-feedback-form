@@ -301,6 +301,36 @@ button.icon-only {
   box-shadow: var(--shadow);
 }
 
+.detail-card {
+  position: relative;
+  margin-top: 12px;
+  padding: 14px 44px 14px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.detail-card-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.detail-card-close:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
 .notice.error {
   border-color: var(--error);
   background: var(--error-bg);
@@ -572,23 +602,52 @@ button.secondary:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+/* A quiet text button: no hyperlink underline, just accent text that fills
+   with accent-subtle on hover — matches the ghost/secondary buttons. */
 button.linklike {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: auto;
   background: none;
   color: var(--accent);
   border: none;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  font-weight: 400;
-  margin-top: 10px;
-  padding: 6px 0;
+  text-decoration: none;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--radius);
 }
 
 button.linklike:hover:not(:disabled) {
-  background: none;
+  background: var(--accent-subtle);
   box-shadow: none;
   color: var(--accent-hover);
+}
+
+/* Quiet action link for panel/section headers — same look as .linklike but for
+   anchors, so navigation links stop reading as underlined hyperlinks. */
+a.ghost-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+}
+
+a.ghost-link:hover {
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+}
+
+/* Full-width variant for the login form's "Forgot password?" row. */
+button.linklike.block {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  margin-top: 10px;
 }
 
 button.danger {
@@ -743,6 +802,35 @@ a:hover svg,
   }
 }
 
+/* Editors and detail panels ease open instead of snapping into place. */
+@keyframes expand-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.inline-edit,
+.detail-card {
+  animation: expand-in 0.25s ease-out both;
+}
+
+/* Tab panels cross-fade as you switch analytics sections. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.tab-panel {
+  animation: fade-in 0.25s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-edit,
+  .detail-card,
+  .tab-panel {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   button svg,
   a svg,
@@ -882,42 +970,49 @@ a:active svg {
   transform: scale(1.1);
 }
 
+/* Hamburger: only on small screens; the sidebar is always visible above. */
+.nav-toggle {
+  display: none;
+}
+
 @media (max-width: 768px) {
+  .nav-toggle {
+    display: inline-flex;
+  }
+
+  /* The sidebar becomes an off-canvas drawer that slides in over the content. */
   .admin-nav {
-    width: 100%;
-    flex-direction: row;
-    padding: 0 8px;
-    border-right: none;
-    border-bottom: 2px solid var(--border);
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 50;
+    width: 260px;
+    max-width: 80vw;
+    padding: 16px 12px;
+    border-right: 1px solid var(--border);
     background: var(--surface);
-    flex-shrink: 0;
+    box-shadow: var(--shadow);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
   }
 
-  .admin-nav::-webkit-scrollbar {
-    display: none;
+  .admin-nav.open {
+    transform: translateX(0);
   }
 
-  .admin-tab {
-    padding: 10px 14px;
-    border-radius: 0;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
-    flex-shrink: 0;
+  .nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgba(0, 0, 0, 0.45);
+    animation: fade-in 0.2s ease-out both;
   }
+}
 
-  .admin-tab:hover {
-    background: transparent;
-    color: var(--text);
-  }
-
-  .admin-tab.active {
-    background: transparent;
-    border-left-color: transparent;
-    border-bottom-color: var(--accent);
+@media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+  .admin-nav {
+    transition: none;
   }
 }
 
@@ -1270,6 +1365,35 @@ button.version-pill {
    ============================================================ */
 .edit-panel {
   border-left: 3px solid var(--accent);
+}
+
+/* The editing user's row and the panel that expands under it, in place. */
+tr.row-highlight > td {
+  background: var(--accent-subtle);
+}
+
+.inline-edit-row > td {
+  padding: 0;
+  background: var(--accent-subtle);
+  border-left: 3px solid var(--accent);
+}
+
+.inline-edit {
+  padding: 16px 20px;
+}
+
+.inline-edit h3 {
+  margin-top: 0;
+}
+
+/* Same editor shown outside a table (the department picker): give it its own
+   framed box since there is no row to sit inside. */
+.inline-edit-boxed {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-subtle);
 }
 
 .inline-check {
@@ -1699,13 +1823,17 @@ textarea.locked {
    ============================================================ */
 .dash-panels {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 
+/* min-width:0 lets the panel shrink below its content so the nowrap/ellipsis
+   titles inside actually truncate instead of forcing the grid wider than the
+   viewport. */
 .dash-panel {
   margin: 0;
+  min-width: 0;
 }
 
 .dash-panel-head {

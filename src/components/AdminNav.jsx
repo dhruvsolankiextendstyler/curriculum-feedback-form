@@ -26,17 +26,18 @@ const TABS = [
   { to: '/admin/logs', label: 'Logs', adminOnly: true, icon: `${ICON}/nocovwne.json` },
 ]
 
-export default function AdminNav() {
+export default function AdminNav({ open = false, onNavigate }) {
   const { role } = useAuth()
   const tabs = TABS.filter((tab) => !tab.adminOnly || isAdmin(role))
 
   return (
-    <nav className="admin-nav" aria-label="Admin sections">
+    <nav className={`admin-nav${open ? ' open' : ''}`} aria-label="Admin sections">
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}
           to={tab.to}
           end={tab.end}
+          onClick={onNavigate}
           className={({ isActive }) => `admin-tab${isActive ? ' active' : ''}`}
         >
           <LordIcon src={tab.icon} size={20} target=".admin-tab" />

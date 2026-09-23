@@ -146,7 +146,7 @@ export default function AdminHome() {
         <div className="card dash-panel">
           <div className="dash-panel-head">
             <h2><Icon icon={Building2} size={18} /> Responses by department</h2>
-            <Link to="/admin/analytics" className="small"><Icon icon={BarChart3} size={14} /> Analytics</Link>
+            <Link to="/admin/analytics" className="small ghost-link"><Icon icon={BarChart3} size={14} /> Analytics</Link>
           </div>
           {deptResponses.length === 0 ? (
             <p className="muted">No responses yet.</p>
@@ -165,7 +165,7 @@ export default function AdminHome() {
         <div className="card dash-panel">
           <div className="dash-panel-head">
             <h2><Icon icon={Clock} size={18} /> Recent activity</h2>
-            <Link to="/admin/logs" className="small"><Icon icon={FileText} size={14} /> View log</Link>
+            <Link to="/admin/logs" className="small ghost-link"><Icon icon={FileText} size={14} /> View log</Link>
           </div>
           {recentLogs.length === 0 ? (
             <p className="muted">No activity recorded yet.</p>

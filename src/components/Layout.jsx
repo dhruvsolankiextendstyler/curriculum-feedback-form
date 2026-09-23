@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide'
+import { LogOut, Menu } from 'lucide'
 import { useAuth } from '../context/AuthContext'
 import { ROLE_LABELS, isStaff } from '../lib/constants'
 import AdminNav from './AdminNav'
@@ -10,8 +11,12 @@ export default function Layout({ children }) {
   const { profile, role, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [navOpen, setNavOpen] = useState(false)
 
   const adminSidebar = location.pathname.startsWith('/admin') && isStaff(role)
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => setNavOpen(false), [location.pathname])
 
   async function handleSignOut() {
     if (!window.confirm('Sign out of Curriculum Feedback?')) return
@@ -22,6 +27,17 @@ export default function Layout({ children }) {
   const topbar = (
     <header className="topbar">
       <div className="topbar-left">
+        {adminSidebar && (
+          <button
+            type="button"
+            className="icon-only nav-toggle"
+            aria-label="Toggle navigation"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen((open) => !open)}
+          >
+            <Icon icon={Menu} size={20} />
+          </button>
+        )}
         <strong className="topbar-brand">Curriculum Feedback</strong>
         <span className="role-chip">{ROLE_LABELS[role] ?? role}</span>
       </div>
@@ -41,7 +57,8 @@ export default function Layout({ children }) {
       <div className="layout-admin">
         {topbar}
         <div className="admin-body">
-          <AdminNav />
+          <AdminNav open={navOpen} onNavigate={() => setNavOpen(false)} />
+          {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
           <main className="admin-main">{children}</main>
         </div>
       </div>

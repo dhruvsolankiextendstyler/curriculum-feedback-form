@@ -11,14 +11,11 @@
  * all three.
  */
 
-export const SAP_ID_MIN = 3
-export const SAP_ID_MAX = 32
-
 /** Starts alphanumeric, then alphanumerics and . _ - / — no '@', no spaces. */
 export const SAP_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{2,31}$/
 
 export const SAP_ID_HINT =
-  `${SAP_ID_MIN}-${SAP_ID_MAX} characters: letters, digits and . _ - / ` +
+  '3-32 characters: letters, digits and . _ - / ' +
   '(no spaces, and no "@" — that is reserved for email addresses)'
 
 export const isEmail = (value) =>

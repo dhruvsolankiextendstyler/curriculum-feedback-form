@@ -36,7 +36,7 @@ function CustomPieLabel({ cx, cy, midAngle, innerRadius, outerRadius, percent, n
 }
 
 /** Donut chart for any name/value array. */
-export function BreakdownPie({ data, height = 280 }) {
+export function BreakdownPie({ data, height = 280, onSelect }) {
   if (!data?.length) return null
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -52,6 +52,8 @@ export function BreakdownPie({ data, height = 280 }) {
           paddingAngle={2}
           label={CustomPieLabel}
           labelLine={false}
+          onClick={onSelect ? (_, idx) => onSelect(data[idx]) : undefined}
+          cursor={onSelect ? 'pointer' : undefined}
         >
           {data.map((_, i) => (
             <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
@@ -65,7 +67,7 @@ export function BreakdownPie({ data, height = 280 }) {
 }
 
 /** Horizontal bar chart for breakdown rows. */
-export function BreakdownBars({ data, height }) {
+export function BreakdownBars({ data, height, onSelect }) {
   if (!data?.length) return null
   const h = height ?? Math.max(180, data.length * 32)
   return (
@@ -75,7 +77,15 @@ export function BreakdownBars({ data, height }) {
         <XAxis type="number" allowDecimals={false} />
         <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 12 }} />
         <Tooltip />
-        <Bar dataKey="value" name="Responses" fill={SERIES[0]} radius={[0, 3, 3, 0]} {...BAR_ANIM}>
+        <Bar
+          dataKey="value"
+          name="Responses"
+          fill={SERIES[0]}
+          radius={[0, 3, 3, 0]}
+          onClick={onSelect ? (entry) => onSelect(entry) : undefined}
+          cursor={onSelect ? 'pointer' : undefined}
+          {...BAR_ANIM}
+        >
           {data.map((_, i) => (
             <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
           ))}
@@ -86,13 +96,13 @@ export function BreakdownBars({ data, height }) {
 }
 
 /** Sentiment donut: positive/neutral/negative/none. */
-export function SentimentPie({ counts, height = 260 }) {
+export function SentimentPie({ counts, height = 260, onSelect, selected }) {
   if (!counts) return null
   const data = [
-    { name: 'Positive', value: counts.positive, color: SENTIMENT_COLORS.positive },
-    { name: 'Neutral', value: counts.neutral, color: SENTIMENT_COLORS.neutral },
-    { name: 'Negative', value: counts.negative, color: SENTIMENT_COLORS.negative },
-    { name: 'No answer', value: counts.none, color: SENTIMENT_COLORS.none },
+    { name: 'Positive', label: 'positive', value: counts.positive, color: SENTIMENT_COLORS.positive },
+    { name: 'Neutral', label: 'neutral', value: counts.neutral, color: SENTIMENT_COLORS.neutral },
+    { name: 'Negative', label: 'negative', value: counts.negative, color: SENTIMENT_COLORS.negative },
+    { name: 'No answer', label: 'none', value: counts.none, color: SENTIMENT_COLORS.none },
   ].filter((d) => d.value > 0)
 
   if (!data.length) return null
@@ -110,9 +120,11 @@ export function SentimentPie({ counts, height = 260 }) {
           paddingAngle={2}
           label={CustomPieLabel}
           labelLine={false}
+          onClick={onSelect ? (_, idx) => onSelect(data[idx].label) : undefined}
+          cursor={onSelect ? 'pointer' : undefined}
         >
           {data.map((d, i) => (
-            <Cell key={i} fill={d.color} />
+            <Cell key={i} fill={d.color} opacity={selected && selected !== d.label ? 0.35 : 1} />
           ))}
         </Pie>
         <Tooltip />
@@ -141,7 +153,7 @@ export function TopTermsChart({ terms, height }) {
 }
 
 /** FR-36: average per question. */
-export function QuestionAverages({ rows }) {
+export function QuestionAverages({ rows, onSelect }) {
   if (!rows?.length) return <p className="muted">No rating answers in this slice.</p>
 
   const axis = axisFor(rows)
@@ -162,7 +174,14 @@ export function QuestionAverages({ rows }) {
           <XAxis type="number" domain={axis.domain} allowDecimals />
           <YAxis type="category" dataKey="label" width={230} tick={{ fontSize: 12 }} />
           <Tooltip content={<AverageTooltip normalised={axis.normalised} />} />
-          <Bar dataKey="value" fill={SERIES[0]} radius={[0, 3, 3, 0]} {...BAR_ANIM}>
+          <Bar
+            dataKey="value"
+            fill={SERIES[0]}
+            radius={[0, 3, 3, 0]}
+            onClick={onSelect ? (entry) => onSelect(entry.key) : undefined}
+            cursor={onSelect ? 'pointer' : undefined}
+            {...BAR_ANIM}
+          >
             {data.map((entry) => (
               <Cell
                 key={entry.key}
@@ -313,6 +332,144 @@ function VersionDot({ cx, cy, payload, colour, seriesKey }) {
       strokeWidth={2}
     />
   )
+}
+
+/** Grouped horizontal bars comparing the same question across stakeholder types. */
+export function StakeholderComparisonChart({ data, stakeholders, height, onSelect, selected }) {
+  if (!data?.length) return null
+  const h = height ?? Math.max(280, data.length * 42)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" domain={[0, 1]} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+        <YAxis type="category" dataKey="label" width={200} tick={{ fontSize: 12 }} />
+        <Tooltip formatter={(v) => (v === null ? '—' : `${(v * 100).toFixed(1)}%`)} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        {stakeholders.map((st, i) => (
+          <Bar
+            key={st.key}
+            dataKey={st.key}
+            name={st.label}
+            fill={SERIES[i % SERIES.length]}
+            radius={[0, 3, 3, 0]}
+            onClick={onSelect ? (entry) => onSelect(entry) : undefined}
+            cursor={onSelect ? 'pointer' : undefined}
+            opacity={selected ? 0.35 : 1}
+            {...BAR_ANIM}
+          />
+        ))}
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Horizontal bars showing response rates, coloured by threshold. */
+export function ParticipationChart({ data, height, onSelect, selected }) {
+  if (!data?.length) return null
+  const h = height ?? Math.max(180, data.length * 36)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+        <YAxis type="category" dataKey="name" width={180} tick={{ fontSize: 12 }} />
+        <Tooltip
+          formatter={(v, _name, props) => [
+            `${v.toFixed(1)}%`,
+            `${props.payload.responded} of ${props.payload.provisioned}`,
+          ]}
+        />
+        <Bar
+          dataKey="rate"
+          name="Response rate"
+          radius={[0, 3, 3, 0]}
+          onClick={onSelect ? (entry) => onSelect(entry) : undefined}
+          cursor={onSelect ? 'pointer' : undefined}
+          {...BAR_ANIM}
+        >
+          {data.map((entry, i) => {
+            const base = entry.rate >= 50 ? '#4a9c7d' : entry.rate >= 25 ? '#c98a3c' : '#c0504d'
+            const dimmed = selected && selected !== entry.name
+            return <Cell key={i} fill={base} opacity={dimmed ? 0.35 : 1} />
+          })}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Colour-coded table: question × department, cell = normalised average. */
+export function HeatmapTable({ rows, onSelect, selected }) {
+  if (!rows?.length) return <p className="muted">No department-level rating data in this slice.</p>
+
+  const questions = []
+  const deptSet = new Map()
+  const grid = new Map()
+
+  for (const row of rows) {
+    if (!grid.has(row.question_key)) {
+      questions.push({ key: row.question_key, text: row.question_text ?? row.question_key })
+      grid.set(row.question_key, new Map())
+    }
+    if (row.department_id && !deptSet.has(row.department_id)) {
+      deptSet.set(row.department_id, { id: row.department_id, name: row.department_name, code: row.department_code })
+    }
+    if (row.department_id) {
+      grid.get(row.question_key).set(row.department_id, row)
+    }
+  }
+
+  const departments = [...deptSet.values()]
+  if (departments.length < 2) return <p className="muted">Need at least two departments with rating data for a heatmap.</p>
+
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Question</th>
+            {departments.map((d) => (
+              <th key={d.id} title={d.name}>{d.code || shorten(d.name, 12)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {questions.map((q) => {
+            const isSelected = selected === q.key
+            return (
+              <tr
+                key={q.key}
+                onClick={onSelect ? () => onSelect(isSelected ? null : q.key) : undefined}
+                style={onSelect ? { cursor: 'pointer' } : undefined}
+                className={isSelected ? 'row-highlight' : undefined}
+              >
+                <td>{shorten(q.text, 38)}</td>
+                {departments.map((d) => {
+                  const cell = grid.get(q.key)?.get(d.id)
+                  const avg = cell?.normalised_avg
+                  return (
+                    <td
+                      key={d.id}
+                      style={avg != null ? { backgroundColor: heatColor(Number(avg)), color: '#fff', textAlign: 'center', fontWeight: 600 } : { textAlign: 'center' }}
+                      title={avg != null ? `${(avg * 100).toFixed(1)}% from ${cell.n_scored} scored answers` : 'No data'}
+                    >
+                      {avg != null ? `${(Number(avg) * 100).toFixed(0)}%` : '—'}
+                    </td>
+                  )
+                })}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function heatColor(value) {
+  const hue = Math.round(value * 120)
+  return `hsl(${hue}, 55%, 42%)`
 }
 
 export function ChoiceChart({ rows, questionKey }) {

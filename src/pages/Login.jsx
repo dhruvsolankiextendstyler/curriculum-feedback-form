@@ -113,7 +113,7 @@ export default function Login() {
         </button>
         <button
           type="button"
-          className="linklike"
+          className="linklike block"
           onClick={handleReset}
           disabled={busy}
         >

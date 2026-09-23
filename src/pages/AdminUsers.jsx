@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Ban, Check, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
 import Icon from '../components/Icon'
 import UserImport from '../components/admin/UserImport'
@@ -18,6 +18,7 @@ import {
   removeUser,
   restoreUser,
   setUserStatus,
+  sortUserRows,
   updateUser,
 } from '../lib/admin/users'
 import {
@@ -65,7 +66,6 @@ export default function AdminUsers() {
     role: '',
     ...FILTER_DEFAULTS,
   })
-  const [users, setUsers] = useState([])
   const [tree, setTree] = useState(EMPTY_TREE)
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
@@ -116,13 +116,28 @@ export default function AdminUsers() {
     [tree.departments, filters.streamId],
   )
 
+  const serverFilters = useMemo(
+    () => ({
+      view: filters.view,
+      role: filters.role,
+      status: filters.status,
+      streamId: filters.streamId,
+      departmentId: filters.departmentId,
+      search: filters.search,
+    }),
+    [filters.view, filters.role, filters.status, filters.streamId, filters.departmentId, filters.search],
+  )
+
+  const [rawUsers, setRawUsers] = useState([])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      setUsers(
+      setRawUsers(
         await loadUsers({
-          ...filters,
-          department: filters.departmentId,
+          ...serverFilters,
+          sort: 'recent',
+          department: serverFilters.departmentId,
           departmentIds: departmentIdsForStream,
         }),
       )
@@ -131,11 +146,16 @@ export default function AdminUsers() {
     } finally {
       setLoading(false)
     }
-  }, [filters, departmentIdsForStream, toast])
+  }, [serverFilters, departmentIdsForStream, toast])
 
   useEffect(() => {
     refresh()
   }, [refresh])
+
+  const users = useMemo(
+    () => sortUserRows(rawUsers, filters.sort, filters.view),
+    [rawUsers, filters.sort, filters.view],
+  )
 
   async function handleToggleStatus(target) {
     const next = target.status === 'active' ? 'inactive' : 'active'
@@ -430,9 +450,9 @@ export default function AdminUsers() {
               </thead>
               <tbody>
                 {users.map((user) => (
+                  <Fragment key={user.id}>
                   <tr
-                    key={user.id}
-                    className={removedView || user.status === 'inactive' ? 'row-muted' : ''}
+                    className={`${removedView || user.status === 'inactive' ? 'row-muted' : ''}${editing?.id === user.id ? ' row-highlight' : ''}`}
                   >
                     <td>{user.full_name || <span className="muted">-</span>}</td>
                     <td>{user.email}</td>
@@ -514,17 +534,12 @@ export default function AdminUsers() {
                       )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {editing && !removedView && (
-        <div className="card edit-panel">
-          <h2>Edit {editing.email}</h2>
-          <form onSubmit={handleSaveEdit}>
+                  {editing?.id === user.id && !removedView && (
+                    <tr className="inline-edit-row">
+                      <td colSpan={hasDepartments ? 8 : 7}>
+                        <div className="inline-edit">
+                          <h3>Edit {editing.email}</h3>
+                          <form onSubmit={handleSaveEdit}>
             <label htmlFor="edit-name">Full name</label>
             <input
               id="edit-name"
@@ -656,8 +671,17 @@ export default function AdminUsers() {
                 <Icon icon={X} size={16} /> Cancel
               </button>
             </div>
-          </form>
-        </div>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   )

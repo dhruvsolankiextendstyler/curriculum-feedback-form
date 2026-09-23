@@ -22,13 +22,10 @@ export default function FeedbackHome() {
   const hasDepartment = Boolean(profile?.department_id)
 
   const load = useCallback(async () => {
-    const cycle = await loadActiveCycle()
-    let schema = null
-    try {
-      schema = await loadForm(role, profile?.department_id ?? null)
-    } catch {
-      schema = null
-    }
+    const [cycle, schema] = await Promise.all([
+      loadActiveCycle(),
+      loadForm(role, profile?.department_id ?? null).catch(() => null),
+    ])
     const submissions = cycle && user ? await loadMySubmissions(user.id, cycle.id) : []
     return { cycle, schema, submissions }
   }, [role, profile?.department_id, user])

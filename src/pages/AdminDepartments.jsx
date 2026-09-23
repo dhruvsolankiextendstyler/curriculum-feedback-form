@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Archive, Check, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
 import Icon from '../components/Icon'
 import { useToast } from '../context/ToastContext'
@@ -252,6 +252,109 @@ export default function AdminDepartments() {
     })
   }
 
+  // One editor, shown in place inside the table row being edited, or — when the
+  // edit was opened from the picker for a department the current filters hide —
+  // at the top as a fallback panel.
+  const departmentEditor = editing?.kind === 'department' && (
+    <>
+      <h3>Edit {streamById.get(editing.row.stream_id)?.name} / {editing.row.name}</h3>
+      <form onSubmit={handleSaveDepartment}>
+        <label htmlFor="edit-department-stream">Stream</label>
+        <select
+          id="edit-department-stream"
+          value={editing.row.stream_id}
+          onChange={(event) =>
+            setEditing((current) => ({
+              ...current,
+              row: { ...current.row, stream_id: event.target.value },
+            }))
+          }
+        >
+          {data.streams.map((stream) => (
+            <option key={stream.id} value={stream.id}>
+              {stream.name}
+              {stream.is_active ? '' : ' (archived)'}
+            </option>
+          ))}
+        </select>
+        <p className="field-hint">
+          Moving a department carries its people and its past responses with it —
+          a response records the department, and reads the stream through it. Add
+          a second department instead if the old one should keep its history.
+        </p>
+
+        <label htmlFor="edit-department-name">Name</label>
+        <input
+          id="edit-department-name"
+          type="text"
+          required
+          value={editing.row.name}
+          onChange={(event) =>
+            setEditing((current) => ({
+              ...current,
+              row: { ...current.row, name: event.target.value },
+            }))
+          }
+        />
+
+        <label htmlFor="edit-department-code">Short code (optional)</label>
+        <input
+          id="edit-department-code"
+          type="text"
+          spellCheck="false"
+          autoCapitalize="characters"
+          aria-describedby="edit-department-code-hint"
+          value={editing.row.code ?? ''}
+          onChange={(event) =>
+            setEditing((current) => ({
+              ...current,
+              row: { ...current.row, code: event.target.value },
+            }))
+          }
+        />
+        <p className="field-hint" id="edit-department-code-hint">
+          Clear the field to remove it. {CODE_HINT}. Codes only have to be unique
+          within a stream.
+        </p>
+
+        <div className="button-row">
+          <button type="submit" disabled={busy}>
+            <Icon icon={Check} size={16} />
+            {busy ? 'Saving…' : 'Save changes'}
+          </button>
+          <button type="button" className="secondary" onClick={() => setEditing(null)}>
+            <Icon icon={X} size={16} /> Cancel
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() =>
+              setArchived(editing.row, 'department', editing.row.is_active)
+            }
+          >
+            <Icon icon={editing.row.is_active ? Archive : RotateCcw} size={14} />
+            {editing.row.is_active ? 'Archive' : 'Restore'}
+          </button>
+          <button
+            type="button"
+            className="secondary danger"
+            disabled={busy}
+            onClick={() => handleDeleteDepartment(editing.row)}
+          >
+            <Icon icon={Trash2} size={16} /> Delete department
+          </button>
+        </div>
+        <p className="field-hint">
+          Archiving takes {editing.row.name} out of the pickers and the add-user
+          form but keeps its people and its analytics. Deleting removes the row
+          outright, and the database refuses that while any account, response or
+          question still points at it.
+        </p>
+      </form>
+    </>
+  )
+
   return (
     <section>
       <h1>Departments</h1>
@@ -397,7 +500,7 @@ export default function AdminDepartments() {
                   type="button"
                   className="secondary"
                   onClick={() =>
-                    setEditing({ kind: 'department', row: { ...pickedDepartment } })
+                    setEditing({ kind: 'department', row: { ...pickedDepartment }, origin: 'picker' })
                   }
                 >
                   <Icon icon={Pencil} size={14} /> Edit {pickedDepartment.name}
@@ -406,6 +509,9 @@ export default function AdminDepartments() {
             )}
           </div>
         </div>
+        {editing?.kind === 'department' && editing.origin === 'picker' && (
+          <div className="inline-edit inline-edit-boxed">{departmentEditor}</div>
+        )}
       </div>
 
       {editing?.kind === 'stream' && (
@@ -442,105 +548,6 @@ export default function AdminDepartments() {
         </div>
       )}
 
-      {editing?.kind === 'department' && (
-        <div className="card edit-panel">
-          <h2>Edit {streamById.get(editing.row.stream_id)?.name} / {editing.row.name}</h2>
-          <form onSubmit={handleSaveDepartment}>
-            <label htmlFor="edit-department-stream">Stream</label>
-            <select
-              id="edit-department-stream"
-              value={editing.row.stream_id}
-              onChange={(event) =>
-                setEditing((current) => ({
-                  ...current,
-                  row: { ...current.row, stream_id: event.target.value },
-                }))
-              }
-            >
-              {data.streams.map((stream) => (
-                <option key={stream.id} value={stream.id}>
-                  {stream.name}
-                  {stream.is_active ? '' : ' (archived)'}
-                </option>
-              ))}
-            </select>
-            <p className="field-hint">
-              Moving a department carries its people and its past responses with it —
-              a response records the department, and reads the stream through it. Add
-              a second department instead if the old one should keep its history.
-            </p>
-
-            <label htmlFor="edit-department-name">Name</label>
-            <input
-              id="edit-department-name"
-              type="text"
-              required
-              value={editing.row.name}
-              onChange={(event) =>
-                setEditing((current) => ({
-                  ...current,
-                  row: { ...current.row, name: event.target.value },
-                }))
-              }
-            />
-
-            <label htmlFor="edit-department-code">Short code (optional)</label>
-            <input
-              id="edit-department-code"
-              type="text"
-              spellCheck="false"
-              autoCapitalize="characters"
-              aria-describedby="edit-department-code-hint"
-              value={editing.row.code ?? ''}
-              onChange={(event) =>
-                setEditing((current) => ({
-                  ...current,
-                  row: { ...current.row, code: event.target.value },
-                }))
-              }
-            />
-            <p className="field-hint" id="edit-department-code-hint">
-              Clear the field to remove it. {CODE_HINT}. Codes only have to be unique
-              within a stream.
-            </p>
-
-            <div className="button-row">
-              <button type="submit" disabled={busy}>
-                <Icon icon={Check} size={16} />
-                {busy ? 'Saving…' : 'Save changes'}
-              </button>
-              <button type="button" className="secondary" onClick={() => setEditing(null)}>
-                <Icon icon={X} size={16} /> Cancel
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() =>
-                  setArchived(editing.row, 'department', editing.row.is_active)
-                }
-              >
-                <Icon icon={editing.row.is_active ? Archive : RotateCcw} size={14} />
-                {editing.row.is_active ? 'Archive' : 'Restore'}
-              </button>
-              <button
-                type="button"
-                className="secondary danger"
-                disabled={busy}
-                onClick={() => handleDeleteDepartment(editing.row)}
-              >
-                <Icon icon={Trash2} size={14} /> Delete department
-              </button>
-            </div>
-            <p className="field-hint">
-              Archiving takes {editing.row.name} out of the pickers and the add-user
-              form but keeps its people and its analytics. Deleting removes the row
-              outright, and the database refuses that while any account, response or
-              question still points at it.
-            </p>
-          </form>
-        </div>
-      )}
 
       <div className="card filters">
         <div>
@@ -639,7 +646,8 @@ export default function AdminDepartments() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className={row.is_active ? undefined : 'row-muted'}>
+                  <Fragment key={row.id}>
+                  <tr className={`${row.is_active ? '' : 'row-muted'}${editing?.kind === 'department' && editing.origin === 'table' && editing.row.id === row.id ? ' row-highlight' : ''}`}>
                     <td>{row.name}</td>
                     <td>{row.code || <span className="muted">-</span>}</td>
                     <td>{row.stream_name}</td>
@@ -663,8 +671,7 @@ export default function AdminDepartments() {
                         type="button"
                         className="secondary"
                         onClick={() => {
-                          setPick({ streamId: row.stream_id, departmentId: row.id })
-                          setEditing({ kind: 'department', row: { ...row } })
+                          setEditing({ kind: 'department', row: { ...row }, origin: 'table' })
                         }}
                       >
                         <Icon icon={Pencil} size={14} /> Edit
@@ -686,6 +693,14 @@ export default function AdminDepartments() {
                       </button>
                     </td>
                   </tr>
+                  {editing?.kind === 'department' && editing.origin === 'table' && editing.row.id === row.id && (
+                    <tr className="inline-edit-row">
+                      <td colSpan={8}>
+                        <div className="inline-edit">{departmentEditor}</div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>

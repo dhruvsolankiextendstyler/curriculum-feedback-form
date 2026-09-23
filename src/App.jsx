@@ -3,12 +3,6 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import { useAuth } from './context/AuthContext'
-import AdminCycles from './pages/AdminCycles'
-import AdminDepartments from './pages/AdminDepartments'
-import AdminHome from './pages/AdminHome'
-import AdminLogs from './pages/AdminLogs'
-import AdminQuestions from './pages/AdminQuestions'
-import AdminUsers from './pages/AdminUsers'
 import FeedbackForm from './pages/FeedbackForm'
 import FeedbackHome from './pages/FeedbackHome'
 import Login from './pages/Login'
@@ -16,13 +10,13 @@ import NotFound from './pages/NotFound'
 import SetPassword from './pages/SetPassword'
 import { homePathFor } from './lib/constants'
 
-/**
- * Analytics is split out of the main bundle. It pulls in recharts, which is
- * larger than the rest of the app put together, and only admins ever open it —
- * loading it eagerly would make several hundred students download a charting
- * library to fill in a form (NFR-2).
- */
+const AdminHome = lazy(() => import('./pages/AdminHome'))
+const AdminUsers = lazy(() => import('./pages/AdminUsers'))
+const AdminDepartments = lazy(() => import('./pages/AdminDepartments'))
+const AdminQuestions = lazy(() => import('./pages/AdminQuestions'))
+const AdminCycles = lazy(() => import('./pages/AdminCycles'))
 const AdminAnalytics = lazy(() => import('./pages/AdminAnalytics'))
+const AdminLogs = lazy(() => import('./pages/AdminLogs'))
 
 /** Sends a signed-in user to their panel; anyone else to the login screen. */
 function RootRedirect() {
@@ -91,7 +85,9 @@ export default function App() {
         element={
           <ProtectedRoute requireStaff>
             <Layout>
-              <AdminHome />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminHome />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }
@@ -101,7 +97,9 @@ export default function App() {
         element={
           <ProtectedRoute requireStaff>
             <Layout>
-              <AdminUsers />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminUsers />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }
@@ -111,7 +109,9 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <Layout>
-              <AdminDepartments />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminDepartments />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }
@@ -123,7 +123,9 @@ export default function App() {
         element={
           <ProtectedRoute requireStaff>
             <Layout>
-              <AdminQuestions />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminQuestions />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }
@@ -134,7 +136,9 @@ export default function App() {
         element={
           <ProtectedRoute requireStaff>
             <Layout>
-              <AdminCycles />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminCycles />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }
@@ -145,7 +149,7 @@ export default function App() {
         element={
           <ProtectedRoute requireStaff>
             <Layout>
-              <Suspense fallback={<p className="muted">Loading analytics…</p>}>
+              <Suspense fallback={<p className="muted">Loading…</p>}>
                 <AdminAnalytics />
               </Suspense>
             </Layout>
@@ -158,7 +162,9 @@ export default function App() {
         element={
           <ProtectedRoute requireAdmin>
             <Layout>
-              <AdminLogs />
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <AdminLogs />
+              </Suspense>
             </Layout>
           </ProtectedRoute>
         }

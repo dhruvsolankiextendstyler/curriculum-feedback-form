@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  BarChart3, Download, Eye, FilterX, MessageSquareText, TrendingUp,
+  ArrowLeftRight, BarChart3, Download, Eye, FilterX, MessageSquareText,
+  TrendingUp, Users, X,
 } from 'lucide'
 import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
@@ -9,11 +10,13 @@ import { useToast } from '../context/ToastContext'
 import { isHod } from '../lib/constants'
 import {
   BreakdownBars, BreakdownPie, ChoiceChart, DistributionChart,
-  QuestionAverages, SentimentPie, TopTermsChart, TrendChart,
+  HeatmapTable, ParticipationChart, QuestionAverages, SentimentPie,
+  StakeholderComparisonChart, TopTermsChart, TrendChart,
 } from '../components/admin/AnalyticsCharts'
 import {
   loadChoiceDistribution, loadDistribution, loadExportRows, loadFilterOptions,
-  loadQuestionStats, loadTextAnswers, loadTotals, loadTrends,
+  loadHeatmap, loadParticipation, loadQuestionStats, loadTextAnswers,
+  loadTotals, loadTrends,
 } from '../lib/analytics/queries'
 import { formatAvg, formatNormalised, spansVersions, versionNote } from '../lib/analytics/scales'
 import { createClassifier } from '../lib/analytics/sentiment'
@@ -42,7 +45,9 @@ import { ROLE_LABELS } from '../lib/constants'
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: Eye },
+  { id: 'participation', label: 'Participation', icon: Users },
   { id: 'ratings', label: 'Ratings', icon: BarChart3 },
+  { id: 'compare', label: 'Compare', icon: ArrowLeftRight },
   { id: 'trends', label: 'Trends', icon: TrendingUp },
   { id: 'feedback', label: 'Feedback', icon: MessageSquareText },
   { id: 'export', label: 'Export', icon: Download },
@@ -310,11 +315,15 @@ export default function Analytics() {
         ))}
       </div>
 
-      {tab === 'overview' && <OverviewTab filters={filters} />}
-      {tab === 'ratings' && <RatingsTab filters={filters} />}
-      {tab === 'trends' && <TrendsTab filters={filters} />}
-      {tab === 'feedback' && <FeedbackTab filters={filters} />}
-      {tab === 'export' && <ExportTab filters={filters} options={options} />}
+      <div className="tab-panel" key={tab}>
+        {tab === 'overview' && <OverviewTab filters={filters} setFilters={setFilters} selectCycle={selectCycle} />}
+        {tab === 'participation' && <ParticipationTab filters={filters} />}
+        {tab === 'ratings' && <RatingsTab filters={filters} />}
+        {tab === 'compare' && <CompareTab filters={filters} />}
+        {tab === 'trends' && <TrendsTab filters={filters} />}
+        {tab === 'feedback' && <FeedbackTab filters={filters} />}
+        {tab === 'export' && <ExportTab filters={filters} options={options} />}
+      </div>
     </section>
   )
 }
@@ -355,9 +364,21 @@ function Panel({ state, children, empty = 'Nothing to show for this selection.' 
   return children(state.data)
 }
 
+function DetailCard({ children, onClose }) {
+  return (
+    <div className="detail-card">
+      <button type="button" className="detail-card-close" onClick={onClose} aria-label="Close">
+        <Icon icon={X} size={16} />
+      </button>
+      <div>{children}</div>
+    </div>
+  )
+}
+
 /** FR-35. */
-function OverviewTab({ filters }) {
+function OverviewTab({ filters, setFilters, selectCycle }) {
   const state = useAnalytics(loadTotals, filters)
+  const [detail, setDetail] = useState(null)
 
   return (
     <Panel state={state}>
@@ -365,19 +386,25 @@ function OverviewTab({ filters }) {
         const stakeholderPie = (totals.byStakeholder ?? []).map((r) => ({
           name: ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType,
           value: r.responseCount,
+          _key: r.stakeholderType,
+          respondentCount: r.respondentCount,
         }))
         const streamBars = (totals.byStream ?? []).map((r) => ({
           name: r.stream, value: r.responseCount,
+          _key: r.streamId,
         }))
         const deptBars = (totals.byDepartment ?? []).map((r) => ({
           name: describeDepartment({ name: r.department, code: r.code }),
           value: r.responseCount,
+          _key: r.departmentId,
         }))
         const programBars = (totals.byProgram ?? []).map((r) => ({
           name: r.program, value: r.responseCount,
+          _key: r.program,
         }))
         const cycleBars = (totals.byCycle ?? []).map((r) => ({
           name: r.label, value: r.responseCount,
+          _key: r.cycleId,
         }))
 
         return (
@@ -404,7 +431,14 @@ function OverviewTab({ filters }) {
               <div className="card">
                 <h2>By stakeholder</h2>
                 <div className="chart-table-row">
-                  <BreakdownPie data={stakeholderPie} height={260} />
+                  <BreakdownPie
+                    data={stakeholderPie}
+                    height={260}
+                    onSelect={(entry) => setDetail(
+                      detail?.type === 'stakeholder' && detail.name === entry.name ? null
+                        : { type: 'stakeholder', name: entry.name, key: entry._key, responses: entry.value, people: entry.respondentCount },
+                    )}
+                  />
                   <Breakdown
                     rows={totals.byStakeholder}
                     nameOf={(r) => ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType}
@@ -413,13 +447,42 @@ function OverviewTab({ filters }) {
                     inline
                   />
                 </div>
+                {detail?.type === 'stakeholder' && (
+                  <DetailCard onClose={() => setDetail(null)}>
+                    <strong>{detail.name}</strong>
+                    <span className="muted"> — {detail.responses} responses from {detail.people} people</span>
+                    <p className="muted small" style={{ marginTop: 8 }}>
+                      Use the stakeholder filter above to see all analytics for this group.
+                    </p>
+                  </DetailCard>
+                )}
+                <p className="muted small">Click a slice to see details.</p>
               </div>
             )}
 
             {streamBars.length > 0 ? (
               <div className="card">
                 <h2>By stream</h2>
-                <BreakdownBars data={streamBars} />
+                <BreakdownBars
+                  data={streamBars}
+                  onSelect={(entry) => setDetail(
+                    detail?.type === 'stream' && detail.name === entry.name ? null
+                      : { type: 'stream', name: entry.name, responses: entry.value },
+                  )}
+                />
+                {detail?.type === 'stream' && (
+                  <DetailCard onClose={() => setDetail(null)}>
+                    <strong>{detail.name}</strong>
+                    <span className="muted"> — {detail.responses} responses</span>
+                    <Breakdown
+                      rows={(totals.byDepartment ?? []).filter((r) => r.stream === detail.name)}
+                      nameOf={(r) => describeDepartment({ name: r.department, code: r.code })}
+                      countOf={(r) => r.responseCount}
+                      empty="No departments in this stream."
+                      inline
+                    />
+                  </DetailCard>
+                )}
               </div>
             ) : (
               <div className="card">
@@ -431,7 +494,30 @@ function OverviewTab({ filters }) {
             {deptBars.length > 0 ? (
               <div className="card">
                 <h2>By department</h2>
-                <BreakdownBars data={deptBars} />
+                <BreakdownBars
+                  data={deptBars}
+                  onSelect={(entry) => setDetail(
+                    detail?.type === 'department' && detail.name === entry.name ? null
+                      : { type: 'department', name: entry.name, responses: entry.value },
+                  )}
+                />
+                {detail?.type === 'department' && (
+                  <DetailCard onClose={() => setDetail(null)}>
+                    <strong>{detail.name}</strong>
+                    <span className="muted"> — {detail.responses} responses</span>
+                    <Breakdown
+                      rows={(totals.byStakeholder ?? []).map((r) => ({
+                        ...r,
+                        label: ROLE_LABELS?.[r.stakeholderType] ?? r.stakeholderType,
+                      }))}
+                      nameOf={(r) => r.label}
+                      countOf={(r) => r.responseCount}
+                      empty="No data."
+                      inline
+                    />
+                    <p className="muted small">Stakeholder breakdown is across the full slice, not per department. Use the department filter above for a scoped view.</p>
+                  </DetailCard>
+                )}
               </div>
             ) : (
               <div className="card">
@@ -443,7 +529,26 @@ function OverviewTab({ filters }) {
             {programBars.length > 0 ? (
               <div className="card">
                 <h2>By program</h2>
-                <BreakdownBars data={programBars} />
+                <BreakdownBars
+                  data={programBars}
+                  onSelect={(entry) => setDetail(
+                    detail?.type === 'program' && detail.name === entry.name ? null
+                      : { type: 'program', name: entry.name, responses: entry.value },
+                  )}
+                />
+                {detail?.type === 'program' && (
+                  <DetailCard onClose={() => setDetail(null)}>
+                    <strong>{detail.name}</strong>
+                    <span className="muted"> — {detail.responses} responses</span>
+                    <Breakdown
+                      rows={(totals.byCourse ?? []).filter((r) => r.program === detail.name)}
+                      nameOf={(r) => r.courseTitle}
+                      countOf={(r) => r.responseCount}
+                      empty="No courses linked to this program."
+                      inline
+                    />
+                  </DetailCard>
+                )}
               </div>
             ) : (
               <div className="card">
@@ -463,7 +568,19 @@ function OverviewTab({ filters }) {
             {cycleBars.length > 0 && (
               <div className="card">
                 <h2>By academic year</h2>
-                <BreakdownBars data={cycleBars} />
+                <BreakdownBars
+                  data={cycleBars}
+                  onSelect={(entry) => setDetail(
+                    detail?.type === 'cycle' && detail.name === entry.name ? null
+                      : { type: 'cycle', name: entry.name, responses: entry.value },
+                  )}
+                />
+                {detail?.type === 'cycle' && (
+                  <DetailCard onClose={() => setDetail(null)}>
+                    <strong>{detail.name}</strong>
+                    <span className="muted"> — {detail.responses} responses</span>
+                  </DetailCard>
+                )}
               </div>
             )}
           </>
@@ -509,12 +626,311 @@ function Breakdown({ title, rows, nameOf, countOf, extra = null, empty = 'None y
   )
 }
 
+function ParticipationTab({ filters }) {
+  const state = useAnalytics(loadParticipation, filters)
+  const [selectedSt, setSelectedSt] = useState(null)
+  const [selectedDept, setSelectedDept] = useState(null)
+
+  return (
+    <Panel state={state} empty="No provisioned users found.">
+      {(rows) => {
+        const totalProvisioned = rows.reduce((s, r) => s + Number(r.provisioned), 0)
+        const totalResponded = rows.reduce((s, r) => s + Number(r.responded), 0)
+        const overallRate = totalProvisioned > 0 ? ((totalResponded / totalProvisioned) * 100) : 0
+
+        const byStakeholder = new Map()
+        const byDepartment = new Map()
+        for (const row of rows) {
+          const st = row.stakeholder_type
+          if (!byStakeholder.has(st)) byStakeholder.set(st, { key: st, provisioned: 0, responded: 0, departments: [] })
+          const stEntry = byStakeholder.get(st)
+          stEntry.provisioned += Number(row.provisioned)
+          stEntry.responded += Number(row.responded)
+          if (row.department_name) {
+            stEntry.departments.push({ name: describeDepartment({ name: row.department_name, code: row.department_code }), provisioned: Number(row.provisioned), responded: Number(row.responded) })
+          }
+
+          if (row.department_id && row.department_name) {
+            const key = row.department_id
+            if (!byDepartment.has(key)) byDepartment.set(key, { name: row.department_name, code: row.department_code, provisioned: 0, responded: 0, stakeholders: [] })
+            const dEntry = byDepartment.get(key)
+            dEntry.provisioned += Number(row.provisioned)
+            dEntry.responded += Number(row.responded)
+            dEntry.stakeholders.push({ name: ROLE_LABELS?.[st] ?? st, provisioned: Number(row.provisioned), responded: Number(row.responded) })
+          }
+        }
+
+        const stData = [...byStakeholder.entries()]
+          .map(([st, v]) => ({ name: ROLE_LABELS?.[st] ?? st, _key: v.key, provisioned: v.provisioned, responded: v.responded, rate: v.provisioned > 0 ? (v.responded / v.provisioned) * 100 : 0, departments: v.departments }))
+          .sort((a, b) => b.rate - a.rate)
+
+        const deptData = [...byDepartment.values()]
+          .map((v) => ({ name: describeDepartment({ name: v.name, code: v.code }), provisioned: v.provisioned, responded: v.responded, rate: v.provisioned > 0 ? (v.responded / v.provisioned) * 100 : 0, stakeholders: v.stakeholders }))
+          .sort((a, b) => b.rate - a.rate)
+
+        const stDetail = selectedSt ? stData.find((s) => s.name === selectedSt) : null
+        const deptDetail = selectedDept ? deptData.find((d) => d.name === selectedDept) : null
+
+        return (
+          <>
+            <div className="stat-grid">
+              <div className="stat">
+                <span className="stat-value">{totalProvisioned}</span>
+                <span className="stat-label">Provisioned</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">{totalResponded}</span>
+                <span className="stat-label">Responded</span>
+              </div>
+              <div className="stat">
+                <span className="stat-value">{overallRate.toFixed(1)}%</span>
+                <span className="stat-label">Response rate</span>
+              </div>
+            </div>
+
+            {stData.length > 0 && (
+              <div className="card">
+                <h2>By stakeholder</h2>
+                <ParticipationChart
+                  data={stData}
+                  selected={selectedSt}
+                  onSelect={(entry) => setSelectedSt(selectedSt === entry.name ? null : entry.name)}
+                />
+                {stDetail && (
+                  <DetailCard onClose={() => setSelectedSt(null)}>
+                    <strong>{stDetail.name}</strong>
+                    <span className="muted"> — {stDetail.responded} of {stDetail.provisioned} responded ({stDetail.rate.toFixed(1)}%)</span>
+                    {stDetail.departments.length > 0 && (
+                      <div className="table-wrap" style={{ marginTop: 8 }}>
+                        <table className="data-table">
+                          <thead><tr><th>Department</th><th>Provisioned</th><th>Responded</th><th>Rate</th></tr></thead>
+                          <tbody>
+                            {stDetail.departments.sort((a, b) => b.responded - a.responded).map((d) => (
+                              <tr key={d.name}>
+                                <td>{d.name}</td>
+                                <td>{d.provisioned}</td>
+                                <td>{d.responded}</td>
+                                <td>{d.provisioned > 0 ? `${((d.responded / d.provisioned) * 100).toFixed(1)}%` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </DetailCard>
+                )}
+                <p className="muted small">Click a bar to see department breakdown.</p>
+              </div>
+            )}
+
+            {deptData.length > 0 && (
+              <div className="card">
+                <h2>By department</h2>
+                <ParticipationChart
+                  data={deptData}
+                  selected={selectedDept}
+                  onSelect={(entry) => setSelectedDept(selectedDept === entry.name ? null : entry.name)}
+                />
+                {deptDetail && (
+                  <DetailCard onClose={() => setSelectedDept(null)}>
+                    <strong>{deptDetail.name}</strong>
+                    <span className="muted"> — {deptDetail.responded} of {deptDetail.provisioned} responded ({deptDetail.rate.toFixed(1)}%)</span>
+                    {deptDetail.stakeholders.length > 0 && (
+                      <div className="table-wrap" style={{ marginTop: 8 }}>
+                        <table className="data-table">
+                          <thead><tr><th>Stakeholder</th><th>Provisioned</th><th>Responded</th><th>Rate</th></tr></thead>
+                          <tbody>
+                            {deptDetail.stakeholders.sort((a, b) => b.responded - a.responded).map((s) => (
+                              <tr key={s.name}>
+                                <td>{s.name}</td>
+                                <td>{s.provisioned}</td>
+                                <td>{s.responded}</td>
+                                <td>{s.provisioned > 0 ? `${((s.responded / s.provisioned) * 100).toFixed(1)}%` : '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </DetailCard>
+                )}
+                <p className="muted small">Click a bar to see stakeholder breakdown.</p>
+              </div>
+            )}
+
+            <p className="muted small">
+              &ldquo;Provisioned&rdquo; counts active user accounts.
+              &ldquo;Responded&rdquo; counts those who submitted at least one
+              response{filters.cycleId ? ' in the selected academic year' : ''}.
+              Users without a department are excluded from the department chart.
+            </p>
+          </>
+        )
+      }}
+    </Panel>
+  )
+}
+
+function CompareTab({ filters }) {
+  const compareFilters = useMemo(
+    () => ({ ...filters, stakeholder: '' }),
+    [filters.cycleId, filters.program, filters.courseKey, filters.streamId, filters.departmentId],
+  )
+  const stats = useAnalytics(loadQuestionStats, compareFilters)
+  const heatmap = useAnalytics(loadHeatmap, filters)
+  const [cmpDetail, setCmpDetail] = useState(null)
+  const [heatKey, setHeatKey] = useState(null)
+
+  const { data: comparisonData, stakeholders } = useMemo(() => {
+    const rows = stats.data ?? []
+    if (!rows.length) return { data: [], stakeholders: [] }
+
+    const byQuestion = new Map()
+    for (const row of rows) {
+      if (row.normalised_avg === null || row.normalised_avg === undefined) continue
+      if (!byQuestion.has(row.question_key)) {
+        byQuestion.set(row.question_key, { text: row.question_text ?? row.question_key, rows: [] })
+      }
+      byQuestion.get(row.question_key).rows.push(row)
+    }
+
+    const allStakeholders = [...new Set(rows.map((r) => r.stakeholder_type))]
+    const comparable = [...byQuestion.entries()].filter(
+      ([, v]) => new Set(v.rows.map((r) => r.stakeholder_type)).size > 1,
+    )
+
+    if (!comparable.length) return { data: [], stakeholders: [] }
+
+    const usedStakeholders = new Set()
+    const data = comparable.map(([, { text, rows: qRows }]) => {
+      const point = { label: text?.length > 34 ? text.slice(0, 33) + '…' : text }
+      for (const r of qRows) {
+        point[r.stakeholder_type] = Number(r.normalised_avg)
+        usedStakeholders.add(r.stakeholder_type)
+      }
+      return point
+    })
+
+    const stakeholders = allStakeholders
+      .filter((st) => usedStakeholders.has(st))
+      .map((st) => ({ key: st, label: ROLE_LABELS?.[st] ?? st }))
+
+    return { data, stakeholders }
+  }, [stats.data])
+
+  return (
+    <>
+      <div className="card">
+        <h2>Stakeholder comparison</h2>
+        <p className="muted small">
+          How different stakeholder groups rate the same question, normalised to
+          0–100% so different scales are comparable. Only questions shared across
+          two or more stakeholder types appear here.
+          {filters.stakeholder && (
+            <strong> The stakeholder filter is ignored for this view.</strong>
+          )}
+        </p>
+        <Panel state={stats} empty="No rating data to compare.">
+          {() =>
+            !comparisonData.length ? (
+              <p className="muted">
+                No questions are shared across stakeholder types in this slice.
+              </p>
+            ) : (
+              <>
+                <StakeholderComparisonChart
+                  data={comparisonData}
+                  stakeholders={stakeholders}
+                  selected={cmpDetail?.label}
+                  onSelect={(entry) =>
+                    setCmpDetail(cmpDetail?.label === entry.label ? null : entry)
+                  }
+                />
+                {cmpDetail && (
+                  <DetailCard onClose={() => setCmpDetail(null)}>
+                    <strong>{cmpDetail.label}</strong>
+                    <div className="table-wrap" style={{ marginTop: 8 }}>
+                      <table className="data-table">
+                        <thead><tr><th>Stakeholder</th><th>Normalised average</th></tr></thead>
+                        <tbody>
+                          {stakeholders
+                            .filter((st) => cmpDetail[st.key] != null)
+                            .sort((a, b) => cmpDetail[b.key] - cmpDetail[a.key])
+                            .map((st) => (
+                              <tr key={st.key}>
+                                <td>{st.label}</td>
+                                <td>{`${(cmpDetail[st.key] * 100).toFixed(1)}%`}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </DetailCard>
+                )}
+                <p className="muted small">Click a bar to see the per-stakeholder figures.</p>
+              </>
+            )
+          }
+        </Panel>
+      </div>
+
+      <div className="card">
+        <h2>Department heatmap</h2>
+        <p className="muted small">
+          Normalised average per question per department. Green is high, red is
+          low. Hover a cell for the exact figure and sample size. Click a row for
+          the figures as a table.
+        </p>
+        <Panel state={heatmap} empty="No department-level rating data in this slice.">
+          {(data) => (
+            <>
+              <HeatmapTable rows={data} selected={heatKey} onSelect={setHeatKey} />
+              {heatKey && (() => {
+                const forQ = data.filter((r) => r.question_key === heatKey && r.department_id && r.normalised_avg != null)
+                if (!forQ.length) return null
+                return (
+                  <DetailCard onClose={() => setHeatKey(null)}>
+                    <strong>{forQ[0].question_text ?? heatKey}</strong>
+                    <div className="table-wrap" style={{ marginTop: 8 }}>
+                      <table className="data-table">
+                        <thead><tr><th>Department</th><th>Normalised average</th><th>Scored</th></tr></thead>
+                        <tbody>
+                          {[...forQ]
+                            .sort((a, b) => Number(b.normalised_avg) - Number(a.normalised_avg))
+                            .map((r) => (
+                              <tr key={r.department_id}>
+                                <td>{describeDepartment({ name: r.department_name, code: r.department_code })}</td>
+                                <td>{`${(Number(r.normalised_avg) * 100).toFixed(1)}%`}</td>
+                                <td>{r.n_scored}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </DetailCard>
+                )
+              })()}
+            </>
+          )}
+        </Panel>
+      </div>
+    </>
+  )
+}
+
 /** FR-36, FR-38, FR-34. */
 function RatingsTab({ filters }) {
   const stats = useAnalytics(loadQuestionStats, filters)
   const dist = useAnalytics(loadDistribution, filters)
   const choices = useAnalytics(loadChoiceDistribution, filters)
   const [selected, setSelected] = useState(null)
+  const distRef = useRef(null)
+
+  // Scroll the distribution into view when a question is picked — it renders
+  // below the fold, so without this the click looks like it did nothing.
+  useEffect(() => {
+    if (selected) distRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selected])
 
   const rows = stats.data ?? []
   const mixedScales = new Set(rows.map((r) => r.scale_id)).size > 1
@@ -531,8 +947,9 @@ function RatingsTab({ filters }) {
           </p>
         )}
         <Panel state={stats} empty="No rating answers in this slice.">
-          {(data) => <QuestionAverages rows={data} />}
+          {(data) => <QuestionAverages rows={data} onSelect={(key) => setSelected(selected === key ? null : key)} />}
         </Panel>
+        <p className="muted small">Click a bar to see its answer distribution.</p>
       </div>
 
       <div className="card">
@@ -621,7 +1038,7 @@ function RatingsTab({ filters }) {
       </div>
 
       {selected && (
-        <div className="card">
+        <div className="card" ref={distRef}>
           <h2>Distribution</h2>
           <Panel state={dist}>
             {(data) => <DistributionChart rows={data} questionKey={selected} />}
@@ -713,6 +1130,8 @@ function FeedbackTab({ filters }) {
     [summary],
   )
 
+  const [sentiment, setSentiment] = useState(null)
+
   return (
     <>
       <div className="card">
@@ -748,7 +1167,12 @@ function FeedbackTab({ filters }) {
             ) : (
               <>
                 <div className="chart-table-row">
-                  <SentimentPie counts={summary.counts} height={240} />
+                  <SentimentPie
+                    counts={summary.counts}
+                    height={240}
+                    selected={sentiment}
+                    onSelect={(label) => setSentiment(sentiment === label ? null : label)}
+                  />
                   <div>
                     <div className="stat-grid">
                       <div className="stat">
@@ -792,7 +1216,15 @@ function FeedbackTab({ filters }) {
                   </div>
                 )}
 
-                <div className="table-wrap" style={{ marginTop: 20 }}>
+                {sentiment && (
+                  <p className="muted small" style={{ marginTop: 12 }}>
+                    Showing <strong>{sentiment}</strong> answers only.{' '}
+                    <button type="button" className="linklike" onClick={() => setSentiment(null)}>
+                      Show all
+                    </button>
+                  </p>
+                )}
+                <div className="table-wrap" style={{ marginTop: sentiment ? 4 : 20 }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -802,7 +1234,9 @@ function FeedbackTab({ filters }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {summary.rows.map((row) => (
+                      {summary.rows
+                        .filter((row) => !sentiment || row.sentiment.label === sentiment)
+                        .map((row) => (
                         <tr key={row.answer_id}>
                           <td>
                             <span className={`pill sentiment-${row.sentiment.label}`} title={row.sentiment.reason}>

@@ -20,12 +20,12 @@ export async function loadCycles() {
 
 /** Response counts per cycle, so an admin can see what a change would affect. */
 export async function loadCycleCounts() {
-  const { data, error } = await supabase.from('responses').select('cycle_id')
+  const { data, error } = await supabase.rpc('count_responses_per_cycle')
   if (error) throw new Error(error.message)
 
   const counts = {}
   for (const row of data ?? []) {
-    counts[row.cycle_id] = (counts[row.cycle_id] ?? 0) + 1
+    counts[row.cycle_id] = row.count
   }
   return counts
 }

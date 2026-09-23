@@ -76,25 +76,23 @@ export async function loadMySubmissions(userId, cycleId) {
  * is simply dropped from the value map — correct, since there is nothing to edit.
  */
 export async function loadResponse(responseId, questions = null) {
-  const { data: response, error } = await supabase
-    .from('responses')
-    .select('id, user_id, form_id, cycle_id, program, course_title, submitted_at, updated_at')
-    .eq('id', responseId)
-    .maybeSingle()
+  const [{ data: response, error }, { data: answers, error: aError }] = await Promise.all([
+    supabase
+      .from('responses')
+      .select('id, user_id, form_id, cycle_id, program, course_title, submitted_at, updated_at')
+      .eq('id', responseId)
+      .maybeSingle(),
+    supabase
+      .from('answers')
+      .select(
+        `question_version_id, value_numeric, value_text, value_options,
+         question_versions!inner ( question_id )`,
+      )
+      .eq('response_id', responseId),
+  ])
 
   if (error) throw new Error(error.message)
   if (!response) return null
-
-  // question_id comes along so an answer can be matched to its question even
-  // after the wording changed underneath it.
-  const { data: answers, error: aError } = await supabase
-    .from('answers')
-    .select(
-      `question_version_id, value_numeric, value_text, value_options,
-       question_versions!inner ( question_id )`,
-    )
-    .eq('response_id', responseId)
-
   if (aError) throw new Error(aError.message)
 
   const rows = remapAnswersToCurrentVersions(answers ?? [], questions)

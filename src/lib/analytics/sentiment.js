@@ -130,6 +130,12 @@ const DOMAIN_OVERRIDES = {
   interactive: 1,     // AFINN: 0
 }
 
+const DOMAIN_PATTERNS = Object.entries(DOMAIN_OVERRIDES).map(([term, delta]) => ({
+  pattern: new RegExp(`\\b${term.replace('-', '[-\\s]?')}\\b`, 'i'),
+  term,
+  delta,
+}))
+
 export const POSITIVE_AT = 2
 export const NEGATIVE_AT = -1
 
@@ -212,9 +218,7 @@ export function createClassifier(analyzer) {
     // --- Layer 3: domain overrides ---
     let domainDelta = 0
     const domainMatches = []
-    for (const [term, delta] of Object.entries(DOMAIN_OVERRIDES)) {
-      // Whole-word match, hyphenated terms allowed
-      const pattern = new RegExp(`\\b${term.replace('-', '[-\\s]?')}\\b`, 'i')
+    for (const { pattern, term, delta } of DOMAIN_PATTERNS) {
       if (pattern.test(trimmed)) {
         domainDelta += delta
         domainMatches.push(`${term}(${delta > 0 ? '+' : ''}${delta})`)

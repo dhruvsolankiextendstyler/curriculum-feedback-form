@@ -189,7 +189,7 @@ function sectionise(questions, departmentName = null) {
 
 function sectioniseCollegeWide(questions) {
   const first = questions.findIndex((q) => q.type === 'rating')
-  const lastRating = findLastIndex(questions, (q) => q.type === 'rating')
+  const lastRating = questions.findLastIndex((q) => q.type === 'rating')
 
   if (first === -1) {
     return questions.length > 0
@@ -217,13 +217,6 @@ function sectioniseCollegeWide(questions) {
       questions: questions.slice(lastRating + 1),
     },
   ].filter((s) => s.questions.length > 0)
-}
-
-// Array.prototype.findLastIndex needs Node 18+/modern browsers; inline it so the
-// build target stays wide.
-function findLastIndex(arr, pred) {
-  for (let i = arr.length - 1; i >= 0; i -= 1) if (pred(arr[i])) return i
-  return -1
 }
 
 /** Question keys the app lifts onto `responses` columns for filtering (FR-37). */
