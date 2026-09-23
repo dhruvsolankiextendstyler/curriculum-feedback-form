@@ -184,8 +184,8 @@ export default function FeedbackForm() {
   }, [schema, scope])
 
   const isOpen = cycleIsOpen(cycle)
-  const readOnly = !isOpen
   const isEditing = Boolean(responseId)
+  const readOnly = !isOpen || isEditing
 
   const setValue = useCallback((versionId, next) => {
     setValues((prev) => ({ ...prev, [versionId]: next }))

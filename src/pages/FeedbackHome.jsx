@@ -1,25 +1,21 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Eye, MessageSquare, Pencil, Trash2 } from 'lucide'
+import { Eye, MessageSquare } from 'lucide'
 import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
-import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import { ROLE_LABELS } from '../lib/constants'
 import { loadForm } from '../lib/formSchema'
 import {
   cycleIsOpen,
-  deleteSubmission,
   loadActiveCycle,
   loadMySubmissions,
 } from '../lib/submissions'
 
 export default function FeedbackHome() {
   const { user, profile, role } = useAuth()
-  const confirm = useConfirm()
   const toast = useToast()
   const [state, setState] = useState({ loading: true, error: null, data: null })
-  const [busyId, setBusyId] = useState(null)
 
   const hasDepartment = Boolean(profile?.department_id)
 
@@ -48,20 +44,6 @@ export default function FeedbackHome() {
       active = false
     }
   }, [load])
-
-  async function handleWithdraw(id) {
-    if (!(await confirm('Withdraw this submission? This cannot be undone.'))) return
-    setBusyId(id)
-    try {
-      await deleteSubmission(id)
-      const data = await load()
-      setState({ loading: false, error: null, data })
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setBusyId(null)
-    }
-  }
 
   if (state.loading) return <p className="muted">Loading…</p>
 
@@ -178,20 +160,8 @@ export default function FeedbackHome() {
                   </div>
                   <div className="button-row">
                     <Link className="button-link secondary" to={`/feedback/${s.id}`}>
-                      <Icon icon={open ? Pencil : Eye} size={14} />
-                      {open ? 'Edit' : 'View'}
+                      <Icon icon={Eye} size={14} /> View
                     </Link>
-                    {open && (
-                      <button
-                        type="button"
-                        className="secondary danger"
-                        disabled={busyId === s.id}
-                        onClick={() => handleWithdraw(s.id)}
-                      >
-                        <Icon icon={Trash2} size={14} />
-                        {busyId === s.id ? 'Withdrawing…' : 'Withdraw'}
-                      </button>
-                    )}
                   </div>
                 </li>
               ))}
