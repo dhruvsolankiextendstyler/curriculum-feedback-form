@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide'
+import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 
@@ -17,6 +19,8 @@ export default function SetPassword() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
 
   async function handleSubmit(event) {
     event.preventDefault()
@@ -54,24 +58,46 @@ export default function SetPassword() {
       )}
       <form onSubmit={handleSubmit} className="card">
         <label htmlFor="new-password">New password</label>
-        <input
-          id="new-password"
-          type="password"
-          autoComplete="new-password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div className="password-field">
+          <input
+            id="new-password"
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="new-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            onClick={() => setShowPassword((v) => !v)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            title={showPassword ? 'Hide password' : 'Show password'}
+          >
+            <Icon icon={showPassword ? EyeOff : Eye} size={18} />
+          </button>
+        </div>
 
         <label htmlFor="confirm-password">Confirm password</label>
-        <input
-          id="confirm-password"
-          type="password"
-          autoComplete="new-password"
-          required
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-        />
+        <div className="password-field">
+          <input
+            id="confirm-password"
+            type={showConfirm ? 'text' : 'password'}
+            autoComplete="new-password"
+            required
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+          />
+          <button
+            type="button"
+            className="password-toggle"
+            onClick={() => setShowConfirm((v) => !v)}
+            aria-label={showConfirm ? 'Hide password' : 'Show password'}
+            title={showConfirm ? 'Hide password' : 'Show password'}
+          >
+            <Icon icon={showConfirm ? EyeOff : Eye} size={18} />
+          </button>
+        </div>
 
         {error && (
           <p className="field-error" role="alert">

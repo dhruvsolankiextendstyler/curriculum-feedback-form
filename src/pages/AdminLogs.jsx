@@ -21,6 +21,8 @@ export default function AdminLogs() {
   const [actionFilter, setActionFilter] = useState('')
   const [formFilter, setFormFilter] = useState('')
   const [search, setSearch] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   useEffect(() => {
     let active = true
@@ -61,8 +63,12 @@ export default function AdminLogs() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
+    const from = dateFrom ? new Date(dateFrom).getTime() : 0
+    const to = dateTo ? new Date(dateTo + 'T23:59:59').getTime() : Infinity
     return logs.filter((log) => {
       if (actionFilter && log.action !== actionFilter) return false
+      const ts = new Date(log.created_at).getTime()
+      if (ts < from || ts > to) return false
       const qn = Array.isArray(log.questions) ? log.questions[0] : log.questions
       const form = qn?.forms ? (Array.isArray(qn.forms) ? qn.forms[0] : qn.forms) : null
       if (formFilter && form?.title !== formFilter) return false
@@ -76,9 +82,9 @@ export default function AdminLogs() {
       }
       return true
     })
-  }, [logs, actionFilter, formFilter, search])
+  }, [logs, actionFilter, formFilter, search, dateFrom, dateTo])
 
-  const hasFilters = actionFilter || formFilter || search
+  const hasFilters = actionFilter || formFilter || search || dateFrom || dateTo
 
   return (
     <section>
@@ -110,6 +116,26 @@ export default function AdminLogs() {
                 ))}
               </select>
             </div>
+            <div>
+              <label htmlFor="log-from">From</label>
+              <input
+                id="log-from"
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </div>
+            <div>
+              <label htmlFor="log-to">To</label>
+              <input
+                id="log-to"
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </div>
             <div className="grow">
               <label htmlFor="log-search">Search</label>
               <input
@@ -124,7 +150,7 @@ export default function AdminLogs() {
               <button
                 type="button"
                 className="secondary"
-                onClick={() => { setActionFilter(''); setFormFilter(''); setSearch('') }}
+                onClick={() => { setActionFilter(''); setFormFilter(''); setSearch(''); setDateFrom(''); setDateTo('') }}
               >
                 <Icon icon={FilterX} size={16} /> Clear
               </button>
