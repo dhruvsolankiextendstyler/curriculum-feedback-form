@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { loadQuestionHistory } from '../../lib/admin/questions'
 
 const ACTION_LABELS = {
@@ -16,6 +16,7 @@ const ACTION_LABELS = {
  * past: every wording the question has ever had is listed, newest first.
  */
 export default function QuestionHistory({ question, onClose }) {
+  const panelRef = useRef(null)
   const [versions, setVersions] = useState([])
   const [audit, setAudit] = useState([])
   const [state, setState] = useState({ loading: true, error: null })
@@ -39,8 +40,12 @@ export default function QuestionHistory({ question, onClose }) {
     }
   }, [question.id])
 
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [question.id])
+
   return (
-    <div className="card history-panel">
+    <div ref={panelRef} className="card history-panel">
       <div className="history-head">
         <h2>History</h2>
         <button type="button" className="secondary" onClick={onClose}>
