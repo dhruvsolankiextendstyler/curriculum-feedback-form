@@ -397,12 +397,34 @@ async function createOne(
     }
   }
 
-  await storeTempPassword(admin, data?.user?.id ?? null, temporaryPassword)
+  const userId = data?.user?.id ?? null
+
+  if (userId) {
+    const { error: profileError } = await admin
+      .from('profiles')
+      .upsert(
+        {
+          id: userId,
+          email,
+          full_name: fullName || null,
+          sap_id: sapId || null,
+          role,
+          department_id: departmentId || null,
+          must_change_password: true,
+        },
+        { onConflict: 'id' },
+      )
+    if (profileError) {
+      console.error(`profile upsert failed for ${email}: ${profileError.message}`)
+    }
+  }
+
+  await storeTempPassword(admin, userId, temporaryPassword)
 
   return {
     email,
     status: 'created',
-    userId: data?.user?.id ?? null,
+    userId,
     sap_id: sapId,
     department_id: departmentId || null,
     temporary_password: temporaryPassword,
