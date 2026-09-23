@@ -1116,6 +1116,13 @@ fieldset.section legend h2 {
   font-size: 0.95rem;
 }
 
+.question-number {
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-right: 6px;
+}
+
 .req {
   color: var(--error);
 }

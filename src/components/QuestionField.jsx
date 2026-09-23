@@ -9,6 +9,7 @@ import { MAX_LONG_TEXT, MAX_SHORT_TEXT } from '../lib/validation'
  */
 export default function QuestionField({
   question,
+  number = null,
   value,
   error,
   disabled,
@@ -27,7 +28,7 @@ export default function QuestionField({
 
   return (
     <div className={`field${error ? ' field-invalid' : ''}${locked ? ' field-locked' : ''}`}>
-      <FieldLabel question={question} fieldId={fieldId} />
+      <FieldLabel question={question} fieldId={fieldId} number={number} />
 
       <Control
         question={question}
@@ -55,10 +56,11 @@ export default function QuestionField({
   )
 }
 
-function FieldLabel({ question, fieldId }) {
+function FieldLabel({ question, fieldId, number = null }) {
   const required = question.required
   const text = (
     <>
+      {number != null && <span className="question-number">{number}.</span>}
       {question.text}
       {required && (
         <span className="req" aria-hidden="true">

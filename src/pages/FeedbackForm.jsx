@@ -171,6 +171,16 @@ export default function FeedbackForm() {
     [visibleSections],
   )
 
+  // Continuous 1..N numbering across the whole visible form, in render order, so
+  // the numbers a respondent reads top to bottom stay in sequence across section
+  // boundaries. Keyed off visibleQuestions so a scope that hides a section
+  // renumbers rather than leaving gaps.
+  const questionNumbers = useMemo(() => {
+    const map = new Map()
+    visibleQuestions.forEach((q, i) => map.set(q.versionId, i + 1))
+    return map
+  }, [visibleQuestions])
+
   const curriculumPdfUrl = useMemo(() => {
     const pdfs = schema?.curriculumPdfs
     if (!pdfs) return null
@@ -385,6 +395,7 @@ export default function FeedbackForm() {
               <QuestionField
                 key={q.versionId}
                 question={q}
+                number={questionNumbers.get(q.versionId)}
                 value={values[q.versionId]}
                 error={errors[q.versionId]}
                 disabled={readOnly}
