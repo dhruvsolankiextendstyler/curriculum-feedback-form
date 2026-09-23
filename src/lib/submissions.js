@@ -1,3 +1,4 @@
+import { cached } from './cache'
 import { supabase } from './supabase'
 import { COURSE_KEYS, PROGRAM_KEYS, pickMeta } from './formSchema'
 import { answersToValues, planAnswerWrite, questionIdOf } from './validation'
@@ -5,8 +6,8 @@ import { answersToValues, planAnswerWrite, questionIdOf } from './validation'
 // Re-exported for callers that treat this module as the submissions API.
 export { answersToValues }
 
-/** The one cycle currently accepting feedback, or null. */
-export async function loadActiveCycle() {
+/** The one cycle currently accepting feedback, or null. Cached 5 min. */
+export const loadActiveCycle = cached(async function () {
   const { data, error } = await supabase
     .from('academic_cycles')
     .select('id, label, opens_at, closes_at')
@@ -15,7 +16,7 @@ export async function loadActiveCycle() {
 
   if (error) throw new Error(error.message)
   return data
-}
+}, 5 * 60_000)
 
 /**
  * One cycle by id.
@@ -45,8 +46,8 @@ export function cycleIsOpen(cycle) {
     now < new Date(cycle.closes_at).getTime()
 }
 
-/** FR-17: the signed-in user's submissions for a cycle, newest first. */
-export async function loadMySubmissions(userId, cycleId) {
+/** FR-17: the signed-in user's submissions for a cycle, newest first. Cached 30 s. */
+export const loadMySubmissions = cached(async function (userId, cycleId) {
   const { data, error } = await supabase
     .from('responses')
     .select('id, program, course_title, submitted_at, updated_at')
@@ -56,7 +57,7 @@ export async function loadMySubmissions(userId, cycleId) {
 
   if (error) throw new Error(error.message)
   return data ?? []
-}
+}, 30_000)
 
 /**
  * Loads one response plus its answers, shaped into the form's value map.
@@ -148,7 +149,6 @@ export function remapAnswersToCurrentVersions(answers, questions) {
  */
 export async function saveSubmission({
   responseId,
-  userId,
   form,
   cycle,
   questions,
@@ -156,77 +156,49 @@ export async function saveSubmission({
 }) {
   const program = pickMeta(questions, values, PROGRAM_KEYS)
   const courseTitle = pickMeta(questions, values, COURSE_KEYS)
-  const meta = {}
-  if (program !== null) meta.program = program
-  if (courseTitle !== null) meta.course_title = courseTitle
 
-  let id = responseId
-
-  if (id) {
-    if (Object.keys(meta).length > 0) {
-      const { error } = await supabase
-        .from('responses')
-        .update(meta)
-        .eq('id', id)
-      if (error) throw translateSaveError(error)
-    }
-  } else {
+  // Editing needs the stored rows to plan against — two things live only there
+  // and cannot be rebuilt from the form: answers to questions since soft-deleted,
+  // and the version each answer was given against (FR-31, FR-32). A brand-new
+  // submission has none, so it skips the read entirely — which is the whole herd
+  // (everyone submitting fresh when a cycle opens), now a single round trip.
+  let existing = []
+  if (responseId) {
     const { data, error } = await supabase
-      .from('responses')
-      .insert({ user_id: userId, form_id: form.id, cycle_id: cycle.id, ...meta })
-      .select('id')
-      .single()
+      .from('answers')
+      .select(
+        `id, question_version_id, value_numeric, value_text, value_options,
+         question_versions!inner ( question_id )`,
+      )
+      .eq('response_id', responseId)
     if (error) throw translateSaveError(error)
-    id = data.id
+    existing = data ?? []
   }
 
-  await writeAnswers(id, questions, values)
+  const { deleteIds, insertRows } = planAnswerWrite(existing, questions, values)
+
+  // One transaction: upsert the response, delete changed/removed answers, insert
+  // the new ones. Atomic, so a mid-save timeout can't leave a response with no
+  // answers that the unique-per-course index then refuses to let the user retry.
+  const { data: id, error } = await supabase.rpc('save_submission', {
+    p_response_id: responseId ?? null,
+    p_form_id: form.id,
+    p_cycle_id: cycle.id,
+    p_program: program,
+    p_course_title: courseTitle,
+    p_delete_ids: deleteIds,
+    p_insert_rows: insertRows,
+  })
+  if (error) throw translateSaveError(error)
+  loadMySubmissions.bust()
   return id
-}
-
-/**
- * Updates the answer set for a response, preserving what the respondent did not
- * change (FR-31, FR-32).
- *
- * Reads before writing, because two things live only in the stored rows and
- * cannot be recovered from the form: answers to questions that have since been
- * soft-deleted, and the version each answer was given against. planAnswerWrite
- * decides which rows survive; see its comment for why replacing the whole set
- * silently corrupted both.
- *
- * Deletes run before inserts so a changed answer can reuse its version id
- * without tripping the unique (response_id, question_version_id) pair. Both are
- * gated by the same RLS edit-window policy, so a closed cycle cannot write.
- */
-async function writeAnswers(responseId, questions, values) {
-  const { data: existing, error: readError } = await supabase
-    .from('answers')
-    .select(
-      `id, question_version_id, value_numeric, value_text, value_options,
-       question_versions!inner ( question_id )`,
-    )
-    .eq('response_id', responseId)
-
-  if (readError) throw translateSaveError(readError)
-
-  const { deleteIds, insertRows } = planAnswerWrite(existing ?? [], questions, values)
-
-  if (deleteIds.length > 0) {
-    const { error } = await supabase.from('answers').delete().in('id', deleteIds)
-    if (error) throw translateSaveError(error)
-  }
-
-  if (insertRows.length > 0) {
-    const rows = insertRows.map((row) => ({ ...row, response_id: responseId }))
-    const { error } = await supabase.from('answers').insert(rows)
-    if (error) throw translateSaveError(error)
-  }
 }
 
 /** FR-16: a respondent may withdraw a mis-filed submission before close. */
 export async function deleteSubmission(responseId) {
   const { error } = await supabase.from('responses').delete().eq('id', responseId)
   if (error) throw translateSaveError(error)
+  loadMySubmissions.bust()
 }
 
 /**

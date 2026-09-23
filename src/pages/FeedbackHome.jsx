@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Eye, MessageSquare, Pencil, Trash2 } from 'lucide'
 import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import { ROLE_LABELS } from '../lib/constants'
 import { loadForm } from '../lib/formSchema'
@@ -15,6 +16,7 @@ import {
 
 export default function FeedbackHome() {
   const { user, profile, role } = useAuth()
+  const confirm = useConfirm()
   const toast = useToast()
   const [state, setState] = useState({ loading: true, error: null, data: null })
   const [busyId, setBusyId] = useState(null)
@@ -48,7 +50,7 @@ export default function FeedbackHome() {
   }, [load])
 
   async function handleWithdraw(id) {
-    if (!window.confirm('Withdraw this submission? This cannot be undone.')) return
+    if (!(await confirm('Withdraw this submission? This cannot be undone.'))) return
     setBusyId(id)
     try {
       await deleteSubmission(id)

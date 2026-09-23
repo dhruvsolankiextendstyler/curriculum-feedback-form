@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Archive, Check, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
 import Icon from '../components/Icon'
+import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import {
   CODE_HINT,
@@ -32,6 +33,7 @@ import {
  * which of the two applies before clicking.
  */
 export default function AdminDepartments() {
+  const confirm = useConfirm()
   const toast = useToast()
   const [data, setData] = useState({ streams: [], departments: [], usage: {} })
   const [loading, setLoading] = useState(true)
@@ -192,12 +194,12 @@ export default function AdminDepartments() {
     if (ok !== null) setEditing(null)
   }
 
-  function setArchived(row, kind, archived) {
+  async function setArchived(row, kind, archived) {
     const verb = archived ? 'Archive' : 'Restore'
     const warning = archived
       ? `${verb} ${row.name}? It leaves the pickers and the add-user form. Nobody loses it, and its responses stay in analytics.`
       : `${verb} ${row.name} to the active list?`
-    if (!window.confirm(warning)) return
+    if (!(await confirm(warning))) return
 
     const write =
       kind === 'stream'
@@ -217,13 +219,13 @@ export default function AdminDepartments() {
     })
   }
 
-  function handleDeleteDepartment(row) {
+  async function handleDeleteDepartment(row) {
     const usage = data.usage[row.id]
     const attached = usage?.blocking ?? 0
     const warning = attached
       ? `${row.name} has ${describeUsage(usage)} attached, so the database will refuse to delete it. Archive it instead?`
       : `Delete ${row.name} permanently? Nothing references it, so this removes the row outright.`
-    if (!window.confirm(warning)) return
+    if (!(await confirm(warning))) return
 
     act(() => deleteDepartment(row.id), `${row.name} deleted.`).then((result) => {
       // act() resolves to null when the write failed; the picker should only
@@ -236,12 +238,12 @@ export default function AdminDepartments() {
     })
   }
 
-  function handleDeleteStream(row) {
+  async function handleDeleteStream(row) {
     const children = data.departments.filter((d) => d.stream_id === row.id).length
     const warning = children
       ? `${row.name} still has ${children} department${children === 1 ? '' : 's'}, so the database will refuse to delete it. Move or delete them first, or archive the stream instead?`
       : `Delete the stream ${row.name} permanently?`
-    if (!window.confirm(warning)) return
+    if (!(await confirm(warning))) return
 
     act(() => deleteStream(row.id), `${row.name} deleted.`).then((result) => {
       if (result === null) return

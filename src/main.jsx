@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import ConfigError from './components/ConfigError'
 import { AuthProvider } from './context/AuthContext'
+import { ConfirmProvider } from './context/ConfirmContext'
 import { ToastProvider } from './context/ToastContext'
 import { isSupabaseConfigured } from './lib/supabase'
 import './styles.css'
@@ -12,9 +13,11 @@ import './styles.css'
 const tree = isSupabaseConfigured ? (
   <BrowserRouter>
     <ToastProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </ConfirmProvider>
     </ToastProvider>
   </BrowserRouter>
 ) : (

@@ -96,7 +96,7 @@ export function versionNote(row) {
   const total = row?.versions_total ?? 0
 
   if (answered > 1) {
-    const list = (row.version_nos ?? []).join(', ')
+    const list = (row.version_nos ?? []).join(', v')
     return `This average spans ${answered} wordings of the question (v${list}).`
   }
   if (total > 1) {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu } from 'lucide'
 import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { ROLE_LABELS, isStaff } from '../lib/constants'
 import AdminNav from './AdminNav'
 import Icon from './Icon'
@@ -11,6 +12,7 @@ export default function Layout({ children }) {
   const { profile, role, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const confirm = useConfirm()
   const [navOpen, setNavOpen] = useState(false)
 
   const adminSidebar = location.pathname.startsWith('/admin') && isStaff(role)
@@ -19,7 +21,7 @@ export default function Layout({ children }) {
   useEffect(() => setNavOpen(false), [location.pathname])
 
   async function handleSignOut() {
-    if (!window.confirm('Sign out of Curriculum Feedback?')) return
+    if (!(await confirm('Sign out of Curriculum Feedback?'))) return
     await signOut()
     navigate('/login', { replace: true })
   }

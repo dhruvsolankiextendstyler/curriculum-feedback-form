@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Check, Pencil, Plus, X, XCircle, Zap } from 'lucide'
 import Icon from '../components/Icon'
+import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import {
   activateCycle,
@@ -28,6 +29,7 @@ export const analyticsPathFor = (cycleId) =>
 
 export default function AdminCycles() {
   const navigate = useNavigate()
+  const confirm = useConfirm()
   const toast = useToast()
   const [cycles, setCycles] = useState([])
   const [counts, setCounts] = useState({})
@@ -74,7 +76,7 @@ export default function AdminCycles() {
       (n
         ? `Its ${n} submission${n === 1 ? '' : 's'} become read-only and respondents can no longer edit.`
         : 'Respondents will no longer be able to submit or edit.')
-    if (!window.confirm(warning)) return
+    if (!(await confirm(warning))) return
     await act(() => closeCycleNow(cycle.id), `"${cycle.label}" is now closed.`)
   }
 

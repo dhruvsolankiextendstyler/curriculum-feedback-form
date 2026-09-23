@@ -1,3 +1,4 @@
+import { cached } from '../cache'
 import { supabase } from '../supabase'
 import { assertDenominators } from './scales'
 
@@ -65,42 +66,42 @@ function describeRpcError(error, fn) {
   return message
 }
 
-/** FR-37: the values the filter dropdowns can offer. */
-export const loadFilterOptions = (cycleId = null) =>
-  call('analytics_filter_options', { p_cycle_id: cycleId || null })
+/** FR-37: the values the filter dropdowns can offer. Cached 2 min. */
+export const loadFilterOptions = cached(
+  (cycleId = null) => call('analytics_filter_options', { p_cycle_id: cycleId || null }),
+  2 * 60_000,
+)
 
-/** FR-35: headline counts, by stakeholder, program, course and cycle. */
-export const loadTotals = (filters) => call('analytics_totals', params(filters))
+/** FR-35: headline counts, by stakeholder, program, course and cycle. Cached 60 s. */
+export const loadTotals = cached(
+  (filters) => call('analytics_totals', params(filters)),
+  60_000,
+)
 
-/** FR-36 + FR-34: per-question averages, denominators and version spread. */
-const _questionStatsCache = { key: null, promise: null }
-export function loadQuestionStats(filters) {
-  const key = JSON.stringify(filters)
-  if (_questionStatsCache.key === key && _questionStatsCache.promise) {
-    return _questionStatsCache.promise
-  }
-  const promise = call('analytics_question_stats', params(filters)).then((data) => {
+/** FR-36 + FR-34: per-question averages, denominators and version spread. Cached 60 s. */
+export const loadQuestionStats = cached(
+  (filters) => call('analytics_question_stats', params(filters)).then((data) => {
     const rows = data ?? []
     rows.forEach(assertDenominators)
     return rows
-  })
-  _questionStatsCache.key = key
-  _questionStatsCache.promise = promise
-  promise.catch(() => {
-    if (_questionStatsCache.promise === promise) _questionStatsCache.promise = null
-  })
-  return promise
-}
+  }),
+  60_000,
+)
 
-/** FR-38: Likert distributions, one row per (question, option). */
-export const loadDistribution = (filters) => call('analytics_distribution', params(filters))
+/** FR-38: Likert distributions, one row per (question, option). Cached 60 s. */
+export const loadDistribution = cached(
+  (filters) => call('analytics_distribution', params(filters)),
+  60_000,
+)
 
-/** FR-38: single/multi select distributions. */
-export const loadChoiceDistribution = (filters) =>
-  call('analytics_choice_distribution', params(filters))
+/** FR-38: single/multi select distributions. Cached 60 s. */
+export const loadChoiceDistribution = cached(
+  (filters) => call('analytics_choice_distribution', params(filters)),
+  60_000,
+)
 
-/** FR-39: per-cycle series for repeated questions. Cycle is the axis, not a filter. */
-export const loadTrends = ({
+/** FR-39: per-cycle series for repeated questions. Cached 60 s. */
+export const loadTrends = cached(({
   stakeholder = null,
   program = null,
   courseKey = null,
@@ -113,11 +114,16 @@ export const loadTrends = ({
     p_course_key: courseKey || null,
     p_stream_id: streamId || null,
     p_department_id: departmentId || null,
-  })
+  }),
+  60_000,
+)
 
-/** FR-40: long_text answers only — see the SQL for why that matters. */
-export const loadTextAnswers = (filters, { limit = 1000, offset = 0 } = {}) =>
-  call('analytics_text_answers', { ...params(filters), p_limit: limit, p_offset: offset })
+/** FR-40: long_text answers only. Cached 60 s. */
+export const loadTextAnswers = cached(
+  (filters, { limit = 1000, offset = 0 } = {}) =>
+    call('analytics_text_answers', { ...params(filters), p_limit: limit, p_offset: offset }),
+  60_000,
+)
 
 /**
  * FR-42: every answer row for the slice, paged.
@@ -144,16 +150,91 @@ export async function loadExportRows(filters, { pageSize = 5000, maxRows = 20000
   return { rows: all, truncated: true }
 }
 
-/** Participation rates per (stakeholder, department). */
-export const loadParticipation = (filters) =>
-  call('analytics_participation', {
+/**
+ * Streaming variant: calls onPage(rows, isFirstPage) for each chunk instead
+ * of accumulating all rows in memory. Raw row objects are GC-eligible after
+ * each callback, so peak memory is one page (~5k rows) instead of 200k.
+ */
+export async function streamExportRows(filters, onPage, { pageSize = 5000, maxRows = 200000 } = {}) {
+  let total = 0
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const page = await call('analytics_export_rows', {
+      ...params(filters),
+      p_limit: pageSize,
+      p_offset: offset,
+    })
+    const rows = page ?? []
+    onPage(rows, offset === 0)
+    total += rows.length
+    if (rows.length < pageSize) return { total, truncated: false }
+  }
+
+  return { total, truncated: true }
+}
+
+/** Participation rates per (stakeholder, department). Cached 60 s. */
+export const loadParticipation = cached(
+  (filters) => call('analytics_participation', {
     p_cycle_id: filters.cycleId || null,
     p_stakeholder: filters.stakeholder || null,
     p_stream_id: filters.streamId || null,
     p_department_id: filters.departmentId || null,
-  })
+  }),
+  60_000,
+)
 
-/** Normalised averages per (question, department) for the heatmap. */
-export const loadHeatmap = (filters) => call('analytics_heatmap', params(filters))
+/** Normalised averages per (question, department) for the heatmap. Cached 60 s. */
+export const loadHeatmap = cached(
+  (filters) => call('analytics_heatmap', params(filters)),
+  60_000,
+)
+
+/** Avg normalised score per course, sorted. Cached 60 s. */
+export const loadCourseRanking = cached(
+  (filters) => call('analytics_course_ranking', {
+    p_cycle_id: filters.cycleId || null,
+    p_stakeholder: filters.stakeholder || null,
+    p_program: filters.program || null,
+    p_stream_id: filters.streamId || null,
+    p_department_id: filters.departmentId || null,
+  }),
+  60_000,
+)
+
+/** Per-question avg this cycle vs previous, with delta. Cached 60 s. */
+export const loadCycleDelta = cached(
+  (filters) => call('analytics_cycle_delta', params(filters)),
+  60_000,
+)
+
+/** Hourly submission counts. Cached 60 s. */
+export const loadSubmissionTimeline = cached(
+  (filters) => call('analytics_submission_timeline', {
+    p_cycle_id: filters.cycleId || null,
+    p_stakeholder: filters.stakeholder || null,
+    p_stream_id: filters.streamId || null,
+    p_department_id: filters.departmentId || null,
+  }),
+  60_000,
+)
+
+/** % blank/short/substantive text answers per question. Cached 60 s. */
+export const loadResponseQuality = cached(
+  (filters) => call('analytics_response_quality', params(filters)),
+  60_000,
+)
+
+/** Dept avg vs college avg per question. Cached 60 s. */
+export const loadDepartmentBenchmark = cached(
+  (filters) => call('analytics_department_benchmark', {
+    p_cycle_id: filters.cycleId || null,
+    p_stakeholder: filters.stakeholder || null,
+    p_program: filters.program || null,
+    p_stream_id: filters.streamId || null,
+    p_department_id: filters.departmentId || null,
+  }),
+  60_000,
+)
 
 export { assertDenominators }

@@ -131,7 +131,7 @@ const DOMAIN_OVERRIDES = {
 }
 
 const DOMAIN_PATTERNS = Object.entries(DOMAIN_OVERRIDES).map(([term, delta]) => ({
-  pattern: new RegExp(`\\b${term.replace('-', '[-\\s]?')}\\b`, 'i'),
+  pattern: new RegExp(`\\b${term.replace(/-/g, '[-\\s]?')}\\b`, 'i'),
   term,
   delta,
 }))
@@ -190,10 +190,13 @@ export function createClassifier(analyzer) {
     let negationDelta = 0
     const negatedWords = []
     for (const word of words) {
-      const idx = tokens.indexOf(word.toLowerCase())
-      if (idx < 0) continue
-      const window = tokens.slice(Math.max(0, idx - 2), idx)
-      if (window.some((t) => NEGATORS.has(t.replace(/[^a-z']/g, '')))) {
+      const lower = word.toLowerCase()
+      let idx = -1
+      let searchFrom = 0
+      while ((idx = tokens.indexOf(lower, searchFrom)) !== -1) {
+        searchFrom = idx + 1
+        const window = tokens.slice(Math.max(0, idx - 2), idx)
+        if (!window.some((t) => NEGATORS.has(t.replace(/[^a-z']/g, '')))) continue
         // We don't know the individual word score from the result, so approximate:
         // re-analyze the single word and use its score as the contribution.
         const wordScore = Number(analyzer.analyze(word)?.score ?? 0)

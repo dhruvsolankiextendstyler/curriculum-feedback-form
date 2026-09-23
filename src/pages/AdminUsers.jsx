@@ -1,8 +1,9 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { Ban, Check, CheckCircle, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
+import { Ban, Check, CheckCircle, Copy, Eye, EyeOff, Pencil, Plus, RotateCcw, Trash2, X } from 'lucide'
 import Icon from '../components/Icon'
 import UserImport from '../components/admin/UserImport'
 import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import {
   ASSIGNABLE_ROLES,
@@ -13,6 +14,7 @@ import {
 import { SAP_ID_HINT } from '../lib/identifier'
 import {
   createUsers,
+  loadTempPassword,
   loadUsers,
   NO_DEPARTMENT,
   removeUser,
@@ -58,6 +60,7 @@ const FILTER_DEFAULTS = {
  */
 export default function AdminUsers() {
   const { user: currentUser, profile, role: currentRole } = useAuth()
+  const confirm = useConfirm()
   const toast = useToast()
   const hod = isHod(currentRole)
 
@@ -160,7 +163,7 @@ export default function AdminUsers() {
   async function handleToggleStatus(target) {
     const next = target.status === 'active' ? 'inactive' : 'active'
     const verb = next === 'inactive' ? 'Deactivate' : 'Reactivate'
-    if (!window.confirm(`${verb} ${target.email}?`)) return
+    if (!(await confirm(`${verb} ${target.email}?`))) return
 
     try {
       await setUserStatus(target.id, next, { asHod: hod })
@@ -172,10 +175,9 @@ export default function AdminUsers() {
   }
 
   async function handleRemove(target) {
-    const confirmed = window.confirm(
+    if (!(await confirm(
       `Remove ${target.email} from the current users list? Their account will be blocked, but their feedback and database record will be preserved.`,
-    )
-    if (!confirmed) return
+    ))) return
 
     try {
       await removeUser(target.id, currentUser.id)
@@ -187,7 +189,7 @@ export default function AdminUsers() {
   }
 
   async function handleRestore(target) {
-    if (!window.confirm(`Restore ${target.email} to the current users list?`)) return
+    if (!(await confirm(`Restore ${target.email} to the current users list?`))) return
 
     try {
       await restoreUser(target.id)
@@ -473,8 +475,9 @@ export default function AdminUsers() {
                         <>
                           <span className={`pill ${user.status}`}>{user.status}</span>
                           {user.must_change_password && (
-                            <span className="muted small account-note">
-                              Temporary password
+                            <span className="account-note temp-password">
+                              <span className="muted small">Temporary password</span>
+                              <TempPassword userId={user.id} />
                             </span>
                           )}
                         </>
@@ -684,6 +687,83 @@ export default function AdminUsers() {
         </>
       )}
     </section>
+  )
+}
+
+/**
+ * Reveals the admin-issued temporary password on demand. It is fetched only
+ * when asked (not held in the list), and RLS already limits the read to an admin
+ * or the owning department's HOD. A `null` result means the user has since set
+ * their own password, so the stored copy is gone — exactly what should happen.
+ */
+function TempPassword({ userId }) {
+  const [status, setStatus] = useState('idle') // idle | loading | shown | gone | error
+  const [value, setValue] = useState('')
+  const [error, setError] = useState('')
+
+  async function reveal() {
+    // Already fetched once — just show it again, no second round trip.
+    if (value) {
+      setStatus('shown')
+      return
+    }
+    setStatus('loading')
+    try {
+      const password = await loadTempPassword(userId)
+      if (password == null) {
+        setStatus('gone')
+      } else {
+        setValue(password)
+        setStatus('shown')
+      }
+    } catch (err) {
+      setError(err.message)
+      setStatus('error')
+    }
+  }
+
+  if (status === 'shown') {
+    return (
+      <span className="temp-password-value">
+        <code>{value}</code>
+        <button
+          type="button"
+          className="link-button"
+          onClick={() => navigator.clipboard?.writeText(value)}
+        >
+          <Icon icon={Copy} size={12} /> Copy
+        </button>
+        <button type="button" className="link-button" onClick={() => setStatus('idle')}>
+          <Icon icon={EyeOff} size={12} /> Hide
+        </button>
+      </span>
+    )
+  }
+
+  if (status === 'gone') {
+    return <span className="muted small">password already changed</span>
+  }
+
+  if (status === 'error') {
+    return (
+      <span className="temp-password-value">
+        <span className="field-error small">{error}</span>
+        <button type="button" className="link-button" onClick={reveal}>
+          Retry
+        </button>
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      className="link-button"
+      disabled={status === 'loading'}
+      onClick={reveal}
+    >
+      <Icon icon={Eye} size={12} /> {status === 'loading' ? 'Loading…' : 'Show password'}
+    </button>
   )
 }
 

@@ -274,6 +274,28 @@ export async function restoreUser(userId) {
 }
 
 /**
+ * The admin-issued temporary password an admin or the owning HOD may re-view
+ * until the user sets their own (20260922230000_temp_password_vault.sql). RLS
+ * lets only staff read it, and the auth password-change trigger deletes the row
+ * the moment the user replaces it — so `null` means "already changed" (or the
+ * migration is not applied yet), and only `must_change_password` accounts have
+ * a row worth asking for.
+ */
+export async function loadTempPassword(userId) {
+  const { data, error } = await supabase
+    .from('user_temp_passwords')
+    .select('temp_password')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    if (/user_temp_passwords/i.test(error.message)) return null
+    throw new Error(error.message)
+  }
+  return data?.temp_password ?? null
+}
+
+/**
  * Creates confirmed Auth accounts in batches without sending invitation email.
  * Each result includes the one-time temporary password that the admin must pass
  * to the user securely.

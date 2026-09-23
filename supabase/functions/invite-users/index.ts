@@ -397,6 +397,8 @@ async function createOne(
     }
   }
 
+  await storeTempPassword(admin, data?.user?.id ?? null, temporaryPassword)
+
   return {
     email,
     status: 'created',
@@ -406,6 +408,29 @@ async function createOne(
     temporary_password: temporaryPassword,
   }
 }
+
+/**
+ * Keep the plaintext temporary password so an admin (or the owning department's
+ * HOD) can re-view it until the user sets their own — see
+ * 20260922230000_temp_password_vault.sql. The account is already created, so a
+ * project still missing the table must not fail the whole row: the password is
+ * still returned to the caller once, exactly as before. Written last (after the
+ * recovery path re-sets must_change_password) so the row survives the
+ * password-change trigger's delete.
+ */
+async function storeTempPassword(admin: any, userId: string | null, temporaryPassword: string) {
+  if (!userId) return
+  const { error } = await admin
+    .from('user_temp_passwords')
+    .upsert({ user_id: userId, temp_password: temporaryPassword }, { onConflict: 'user_id' })
+  if (error && !isMissingTempPasswordTable(error.message)) {
+    console.error(`user_temp_passwords write failed for ${userId}: ${error.message}`)
+  }
+}
+
+const isMissingTempPasswordTable = (message = '') =>
+  /user_temp_passwords/i.test(message) &&
+  /(does not exist|could not find|schema cache|relation)/i.test(message)
 
 /**
  * The department has to exist and be in use. It is read under service_role rather
@@ -553,6 +578,8 @@ async function recoverLegacyInvite(
       reason: updateProfileError.message,
     }
   }
+
+  await storeTempPassword(admin, profile.id, account.temporaryPassword)
 
   return {
     email: account.email,

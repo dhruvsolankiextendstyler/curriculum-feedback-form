@@ -417,6 +417,51 @@ button.icon-only {
   background: transparent;
 }
 
+/* ============================================================
+   Confirm dialog (replaces native window.confirm)
+   ============================================================ */
+.confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+  animation: fade-in 0.15s ease-out both;
+}
+
+.confirm-dialog {
+  width: min(420px, calc(100vw - 32px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  padding: 24px;
+  animation: toast-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.confirm-icon {
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+
+.confirm-dialog p {
+  margin: 8px 0 20px;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirm-actions button {
+  margin-top: 0;
+}
+
 @keyframes toast-in {
   from {
     opacity: 0;
@@ -576,7 +621,7 @@ button {
   transition: background 0.15s, box-shadow 0.15s;
 }
 
-button:hover:not(:disabled) {
+button:where(:hover:not(:disabled)) {
   background: var(--accent-solid-hover);
   box-shadow: var(--shadow);
 }
@@ -1348,6 +1393,51 @@ li.submission .button-row {
 .account-note {
   display: block;
   white-space: nowrap;
+}
+
+.temp-password {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+}
+
+.temp-password-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.temp-password-value code {
+  user-select: all;
+  word-break: break-all;
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.82rem;
+}
+
+.link-button {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.link-button:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.link-button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 button.version-pill {

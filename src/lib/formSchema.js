@@ -1,3 +1,4 @@
+import { cached } from './cache'
 import { supabase } from './supabase'
 
 /**
@@ -17,7 +18,7 @@ import { supabase } from './supabase'
  * policy, and it keeps a respondent whose department is not yet loaded from
  * briefly seeing another department's questions.
  */
-export async function loadForm(role, departmentId = null) {
+export const loadForm = cached(async function (role, departmentId = null) {
   const { data: form, error: formError } = await supabase
     .from('forms')
     .select('id, title, description, stakeholder_type')
@@ -101,7 +102,7 @@ export async function loadForm(role, departmentId = null) {
     departmentName,
     sections: sectionise(questions, departmentName),
   }
-}
+}, 5 * 60_000)
 
 /** Names the department section. Failure is not fatal: the section falls back. */
 async function loadDepartmentName(departmentId) {

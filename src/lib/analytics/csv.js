@@ -117,6 +117,27 @@ export function buildCsv(rows) {
 }
 
 /**
+ * Streaming variant: processes one page of rows into CSV text.
+ * Only the first page gets the header row — callers concatenate pages.
+ */
+export function buildCsvPage(rows, includeHeader) {
+  const source = (rows ?? []).filter(Boolean)
+  const kept = source.filter(
+    (row) => !IDENTITY_KEYS.has(String(row.question_key ?? '').toLowerCase()),
+  )
+  const data = kept.map((row) => {
+    const record = toRecord(row)
+    return COLUMNS.map((c) => record[c.key])
+  })
+
+  const csv = includeHeader
+    ? Papa.unparse({ fields: COLUMNS.map((c) => c.label), data }, { escapeFormulae: true })
+    : Papa.unparse(data, { escapeFormulae: true })
+
+  return { csv, rowCount: kept.length, excludedIdentityRows: source.length - kept.length }
+}
+
+/**
  * A UTF-8 BOM, without which Excel on Windows renders the en dashes already
  * present in the seeded option labels ("Academics – teaching") as mojibake.
  */

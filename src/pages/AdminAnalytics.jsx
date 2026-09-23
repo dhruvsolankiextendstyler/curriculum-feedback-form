@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowLeftRight, BarChart3, Download, Eye, FilterX, MessageSquareText,
+  ArrowLeftRight, BarChart3, Download, Eye, FilterX, Lightbulb, MessageSquareText,
   TrendingUp, Users, X,
 } from 'lucide'
 import Icon from '../components/Icon'
@@ -9,19 +9,22 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { isHod } from '../lib/constants'
 import {
-  BreakdownBars, BreakdownPie, ChoiceChart, DistributionChart,
-  HeatmapTable, ParticipationChart, QuestionAverages, SentimentPie,
-  StakeholderComparisonChart, TopTermsChart, TrendChart,
+  BreakdownBars, BreakdownPie, ChoiceChart, CourseRankingTable,
+  CycleDeltaTable, DepartmentBenchmarkChart, DistributionChart,
+  HeatmapTable, ParticipationChart, QuestionAverages, ResponseQualityChart,
+  SentimentPie, StakeholderComparisonChart, SubmissionTimelineChart,
+  TopTermsChart, TrendChart,
 } from '../components/admin/AnalyticsCharts'
 import {
-  loadChoiceDistribution, loadDistribution, loadExportRows, loadFilterOptions,
-  loadHeatmap, loadParticipation, loadQuestionStats, loadTextAnswers,
-  loadTotals, loadTrends,
+  loadChoiceDistribution, loadCourseRanking, loadCycleDelta,
+  loadDepartmentBenchmark, loadDistribution, loadFilterOptions,
+  loadHeatmap, loadParticipation, loadQuestionStats, loadResponseQuality,
+  loadSubmissionTimeline, loadTextAnswers, loadTotals, loadTrends,
+  streamExportRows,
 } from '../lib/analytics/queries'
 import { formatAvg, formatNormalised, spansVersions, versionNote } from '../lib/analytics/scales'
-import { createClassifier } from '../lib/analytics/sentiment'
 import { buildInsights, topTerms } from '../lib/analytics/insights'
-import { BOM, buildCsv, fileName } from '../lib/analytics/csv'
+import { BOM, buildCsvPage, fileName } from '../lib/analytics/csv'
 import { describeDepartment } from '../lib/admin/departmentRules'
 import { ROLE_LABELS } from '../lib/constants'
 
@@ -47,8 +50,8 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: Eye },
   { id: 'participation', label: 'Participation', icon: Users },
   { id: 'ratings', label: 'Ratings', icon: BarChart3 },
-  { id: 'compare', label: 'Compare', icon: ArrowLeftRight },
   { id: 'trends', label: 'Trends', icon: TrendingUp },
+  { id: 'insights', label: 'Insights', icon: Lightbulb },
   { id: 'feedback', label: 'Feedback', icon: MessageSquareText },
   { id: 'export', label: 'Export', icon: Download },
 ]
@@ -319,8 +322,8 @@ export default function Analytics() {
         {tab === 'overview' && <OverviewTab filters={filters} setFilters={setFilters} selectCycle={selectCycle} />}
         {tab === 'participation' && <ParticipationTab filters={filters} />}
         {tab === 'ratings' && <RatingsTab filters={filters} />}
-        {tab === 'compare' && <CompareTab filters={filters} />}
         {tab === 'trends' && <TrendsTab filters={filters} />}
+        {tab === 'insights' && <InsightsTab filters={filters} />}
         {tab === 'feedback' && <FeedbackTab filters={filters} />}
         {tab === 'export' && <ExportTab filters={filters} options={options} />}
       </div>
@@ -926,8 +929,6 @@ function RatingsTab({ filters }) {
   const [selected, setSelected] = useState(null)
   const distRef = useRef(null)
 
-  // Scroll the distribution into view when a question is picked — it renders
-  // below the fold, so without this the click looks like it did nothing.
   useEffect(() => {
     if (selected) distRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [selected])
@@ -969,12 +970,6 @@ function RatingsTab({ filters }) {
                       <th>Normalised</th>
                       <th>Scored</th>
                       <th>N/A</th>
-                      {/* `n_respondents` is count(distinct response_id), not
-                          distinct people: one person submits for several
-                          courses, so this is always >= the Overview tile's
-                          People figure. Naming it "People" put two different
-                          numbers under one word and overstated the human sample
-                          behind every average (FR-36). */}
                       <th>Responses</th>
                       <th />
                     </tr>
@@ -1005,13 +1000,6 @@ function RatingsTab({ filters }) {
                             <button
                               type="button"
                               className="linklike"
-                              // Compared against what state actually holds. The
-                              // composite `id` can never equal a bare
-                              // question_key, so the `? null` arm was dead code
-                              // and Hide did nothing (FR-38). Storing the
-                              // composite instead would break
-                              // DistributionChart, which filters on
-                              // question_key alone.
                               onClick={() =>
                                 setSelected(
                                   selected === row.question_key ? null : row.question_key,
@@ -1096,29 +1084,73 @@ function TrendsTab({ filters }) {
   )
 }
 
+function InsightsTab({ filters }) {
+  const ranking = useAnalytics(loadCourseRanking, filters)
+  const timeline = useAnalytics(loadSubmissionTimeline, filters)
+  const quality = useAnalytics(loadResponseQuality, filters)
+  const benchmark = useAnalytics(loadDepartmentBenchmark, filters)
+
+  return (
+    <>
+      <div className="card">
+        <h2>Course ranking</h2>
+        <p className="muted small">Courses sorted by normalised average rating.</p>
+        <Panel state={ranking} empty="No course-level rating data.">
+          {(data) => <CourseRankingTable rows={data} />}
+        </Panel>
+      </div>
+
+      <div className="card">
+        <h2>Submission timeline</h2>
+        <p className="muted small">Daily submission volume.</p>
+        <Panel state={timeline} empty="No submission timestamps.">
+          {(data) => <SubmissionTimelineChart rows={data} />}
+        </Panel>
+      </div>
+
+      <div className="card">
+        <h2>Response quality</h2>
+        <p className="muted small">
+          How substantive are text answers? Blank includes &ldquo;N/A&rdquo;, &ldquo;nil&rdquo;, etc.
+          Short is 1–15 characters. Substantive is 16+.
+        </p>
+        <Panel state={quality} empty="No text questions in this slice.">
+          {(data) => <ResponseQualityChart rows={data} />}
+        </Panel>
+      </div>
+
+      <div className="card">
+        <h2>Department benchmark</h2>
+        <p className="muted small">
+          Department average vs college average per question. Select a department filter to activate.
+        </p>
+        <Panel state={benchmark} empty="Select a department to see its benchmark against the college.">
+          {(data) => <DepartmentBenchmarkChart rows={data} />}
+        </Panel>
+      </div>
+    </>
+  )
+}
+
 /** FR-40, FR-41. */
 function FeedbackTab({ filters }) {
   const stats = useAnalytics(loadQuestionStats, filters)
   const text = useAnalytics(loadTextAnswers, filters)
-  const [analyzer, setAnalyzer] = useState(null)
+  const [summary, setSummaryState] = useState(null)
+  const [workerError, setWorkerError] = useState(false)
 
   useEffect(() => {
+    if (!text.data || !text.data.length) { setSummaryState(null); return }
     let active = true
-    import('sentiment')
-      .then((mod) => {
-        const Sentiment = mod.default ?? mod
-        if (active) setAnalyzer(new Sentiment())
-      })
-      .catch(() => active && setAnalyzer(false))
-    return () => {
-      active = false
-    }
-  }, [])
-
-  const summary = useMemo(() => {
-    if (!analyzer || !text.data) return null
-    return createClassifier(analyzer).summarise(text.data)
-  }, [analyzer, text.data])
+    const worker = new Worker(
+      new URL('../lib/analytics/sentiment.worker.js', import.meta.url),
+      { type: 'module' },
+    )
+    worker.onmessage = (e) => { if (active) setSummaryState(e.data); worker.terminate() }
+    worker.onerror = () => { if (active) setWorkerError(true); worker.terminate() }
+    worker.postMessage(text.data)
+    return () => { active = false; worker.terminate() }
+  }, [text.data])
 
   const insights = useMemo(
     () => buildInsights(stats.data ?? [], summary),
@@ -1155,7 +1187,7 @@ function FeedbackTab({ filters }) {
 
       <div className="card">
         <h2>Written feedback</h2>
-        {analyzer === false && (
+        {workerError && (
           <p className="notice error">The sentiment lexicon could not be loaded.</p>
         )}
         <Panel state={text} empty="No written answers in this slice.">
@@ -1267,12 +1299,19 @@ function ExportTab({ filters, options }) {
   async function download() {
     setState({ busy: true, error: null, done: null })
     try {
-      const { rows, truncated } = await loadExportRows(filters)
-      const { csv, rowCount, excludedIdentityRows } = buildCsv(rows)
+      const parts = [BOM]
+      let rowCount = 0
+      let excludedIdentityRows = 0
 
-      // The BOM keeps Excel on Windows from mojibaking the en dashes in the
-      // seeded option labels.
-      const blob = new Blob([BOM + csv], { type: 'text/csv;charset=utf-8' })
+      const { total, truncated } = await streamExportRows(filters, (rows, isFirst) => {
+        const page = buildCsvPage(rows, isFirst)
+        parts.push(page.csv)
+        parts.push('\n')
+        rowCount += page.rowCount
+        excludedIdentityRows += page.excludedIdentityRows
+      })
+
+      const blob = new Blob(parts, { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url

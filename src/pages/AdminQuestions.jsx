@@ -7,6 +7,7 @@ import Icon from '../components/Icon'
 import QuestionEditor from '../components/admin/QuestionEditor'
 import QuestionHistory from '../components/admin/QuestionHistory'
 import { useAuth } from '../context/AuthContext'
+import { useConfirm } from '../context/ConfirmContext'
 import { useToast } from '../context/ToastContext'
 import { isAdmin, RESPONDENT_ROLES, ROLE_LABELS } from '../lib/constants'
 import { supabase } from '../lib/supabase'
@@ -106,6 +107,7 @@ async function loadCurriculumPdfForAdmin(formId, departmentId) {
  */
 export default function AdminQuestions() {
   const { user, profile, role } = useAuth()
+  const confirm = useConfirm()
   const toast = useToast()
   const admin = isAdmin(role)
 
@@ -223,7 +225,7 @@ export default function AdminQuestions() {
 
   async function handlePdfRemove() {
     if (!pdfPath || !formId) return
-    if (!window.confirm('Remove the curriculum PDF?')) return
+    if (!(await confirm('Remove the curriculum PDF?'))) return
     setPdfBusy(true)
     try {
       await removeCurriculumPdf(formId, departmentId, pdfPath)
@@ -319,7 +321,7 @@ export default function AdminQuestions() {
       ? `This question has ${count} answer${count === 1 ? '' : 's'}. ` +
         'It will be removed from the live form but its data stays in reports. Continue?'
       : 'Remove this question from the live form?'
-    if (!window.confirm(warning)) return
+    if (!(await confirm(warning))) return
 
     try {
       await deactivateQuestion(question.id, user.id)

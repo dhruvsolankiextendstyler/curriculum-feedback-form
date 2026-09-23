@@ -1,23 +1,19 @@
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
+  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { axisFor, formatAvg, formatNormalised, spansVersions } from '../../lib/analytics/scales'
 
-const SERIES = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95']
+const SERIES = ['#818cf8', '#22d3ee', '#fbbf24', '#f472b6', '#a78bfa', '#34d399']
 
-/* Bars reveal by growing in, like the Recharts AnimatedBarTimeSeries example.
-   (animationMatchBy/animationInterpolateFn from that demo are v3-only; this repo
-   is on recharts 2, where animationDuration + ease-out gives the same grow-in.)
-   Spread onto every <Bar>. */
 const BAR_ANIM = {
   isAnimationActive: true,
   animationBegin: 150,
   animationDuration: 1200,
   animationEasing: 'ease-out',
 }
-const PIE_COLORS = ['#2f6fb0', '#4a9c7d', '#c98a3c', '#a5566f', '#6b6ba8', '#7d8b95', '#5b9bd5', '#70ad47']
-const SENTIMENT_COLORS = { positive: '#4a9c7d', neutral: '#7d8b95', negative: '#c0504d', none: '#d8dce3' }
+const PIE_COLORS = ['#818cf8', '#22d3ee', '#fbbf24', '#f472b6', '#a78bfa', '#34d399', '#fb923c', '#2dd4bf']
+const SENTIMENT_COLORS = { positive: '#34d399', neutral: '#94a3b8', negative: '#f87171', none: '#475569' }
 
 const shorten = (text, max = 42) =>
   !text ? '' : text.length <= max ? text : `${text.slice(0, max - 1)}…`
@@ -355,9 +351,12 @@ export function StakeholderComparisonChart({ data, stakeholders, height, onSelec
             radius={[0, 3, 3, 0]}
             onClick={onSelect ? (entry) => onSelect(entry) : undefined}
             cursor={onSelect ? 'pointer' : undefined}
-            opacity={selected ? 0.35 : 1}
             {...BAR_ANIM}
-          />
+          >
+            {data.map((entry, j) => (
+              <Cell key={j} opacity={selected && selected !== entry.label ? 0.35 : 1} />
+            ))}
+          </Bar>
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -389,7 +388,7 @@ export function ParticipationChart({ data, height, onSelect, selected }) {
           {...BAR_ANIM}
         >
           {data.map((entry, i) => {
-            const base = entry.rate >= 50 ? '#4a9c7d' : entry.rate >= 25 ? '#c98a3c' : '#c0504d'
+            const base = entry.rate >= 50 ? '#34d399' : entry.rate >= 25 ? '#fbbf24' : '#f87171'
             const dimmed = selected && selected !== entry.name
             return <Cell key={i} fill={base} opacity={dimmed ? 0.35 : 1} />
           })}
@@ -468,8 +467,155 @@ export function HeatmapTable({ rows, onSelect, selected }) {
 }
 
 function heatColor(value) {
-  const hue = Math.round(value * 120)
-  return `hsl(${hue}, 55%, 42%)`
+  const hue = Math.round(value * 140)
+  return `hsl(${hue}, 65%, 48%)`
+}
+
+/** Sorted table of courses by normalised average. */
+export function CourseRankingTable({ rows }) {
+  if (!rows?.length) return <p className="muted">No course-level rating data in this slice.</p>
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr><th>#</th><th>Course</th><th>Program</th><th>Avg</th><th>Normalised</th><th>Responses</th><th>Rated</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.course_key}>
+              <td>{i + 1}</td>
+              <td title={r.course_key}>{r.course_title || r.course_key}</td>
+              <td>{r.program || '—'}</td>
+              <td>{r.avg_score != null ? Number(r.avg_score).toFixed(2) : '—'}</td>
+              <td>{r.normalised_avg != null ? `${(Number(r.normalised_avg) * 100).toFixed(1)}%` : '—'}</td>
+              <td>{r.n_responses}</td>
+              <td>{r.n_rated}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Table showing per-question delta between current and previous cycle. */
+export function CycleDeltaTable({ rows }) {
+  if (!rows?.length) return <p className="muted">No previous cycle to compare against.</p>
+  const prevLabel = rows[0]?.previous_cycle || 'Previous'
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Question</th><th>Stakeholder</th>
+            <th>Current</th><th>{prevLabel}</th><th>Delta</th>
+            <th>n (now)</th><th>n (prev)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => {
+            const d = r.delta != null ? Number(r.delta) : null
+            return (
+              <tr key={i}>
+                <td>{shorten(r.question_text || r.question_key, 40)}</td>
+                <td>{r.stakeholder_type}</td>
+                <td>{r.current_normalised != null ? `${(Number(r.current_normalised) * 100).toFixed(1)}%` : '—'}</td>
+                <td>{r.previous_normalised != null ? `${(Number(r.previous_normalised) * 100).toFixed(1)}%` : '—'}</td>
+                <td style={{ color: d == null ? undefined : d > 0 ? '#34d399' : d < 0 ? '#f87171' : undefined, fontWeight: 600 }}>
+                  {d == null ? '—' : `${d > 0 ? '+' : ''}${(d * 100).toFixed(1)}%`}
+                </td>
+                <td>{r.current_n}</td>
+                <td>{r.previous_n ?? '—'}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Area chart of submission counts over time. */
+export function SubmissionTimelineChart({ rows, height = 300 }) {
+  if (!rows?.length) return <p className="muted">No submission timestamps in this slice.</p>
+  const byDay = new Map()
+  for (const r of rows) {
+    const key = r.day
+    byDay.set(key, (byDay.get(key) || 0) + Number(r.submissions))
+  }
+  const data = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, count]) => ({ day, count }))
+
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ left: 8, right: 24 }}>
+        <defs>
+          <linearGradient id="timelineGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={SERIES[0]} stopOpacity={0.5} />
+            <stop offset="95%" stopColor={SERIES[0]} stopOpacity={0.05} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
+        <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+        <YAxis allowDecimals={false} />
+        <Tooltip />
+        <Area type="monotone" dataKey="count" name="Submissions" stroke={SERIES[0]} strokeWidth={2} fill="url(#timelineGrad)" />
+      </AreaChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Stacked bars showing blank/short/substantive per text question. */
+export function ResponseQualityChart({ rows, height }) {
+  if (!rows?.length) return <p className="muted">No text questions in this slice.</p>
+  const data = rows.map((r) => ({
+    label: shorten(r.question_text || r.question_key, 36),
+    Blank: Number(r.blank_answers),
+    Short: Number(r.short_answers),
+    Substantive: Number(r.substantive),
+    avgLen: Number(r.avg_length),
+  }))
+  const h = height ?? Math.max(220, data.length * 36)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" allowDecimals={false} />
+        <YAxis type="category" dataKey="label" width={220} tick={{ fontSize: 11 }} />
+        <Tooltip />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Bar dataKey="Blank" stackId="q" fill="#f87171" radius={0} {...BAR_ANIM} />
+        <Bar dataKey="Short" stackId="q" fill="#fbbf24" radius={0} {...BAR_ANIM} />
+        <Bar dataKey="Substantive" stackId="q" fill="#34d399" radius={[0, 3, 3, 0]} {...BAR_ANIM} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
+}
+
+/** Grouped bars: department avg vs college avg per question. */
+export function DepartmentBenchmarkChart({ rows, height }) {
+  if (!rows?.length) return <p className="muted">No department benchmark data — select a department first.</p>
+  const data = rows.map((r) => ({
+    label: shorten(r.question_text || r.question_key, 36),
+    Department: r.dept_avg != null ? Number(r.dept_avg) : null,
+    College: r.college_avg != null ? Number(r.college_avg) : null,
+    delta: r.delta != null ? Number(r.delta) : null,
+  }))
+  const h = height ?? Math.max(240, data.length * 38)
+  return (
+    <ResponsiveContainer width="100%" height={h}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" domain={[0, 1]} tickFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+        <YAxis type="category" dataKey="label" width={220} tick={{ fontSize: 11 }} />
+        <Tooltip formatter={(v) => v != null ? `${(v * 100).toFixed(1)}%` : '—'} />
+        <Legend wrapperStyle={{ fontSize: 12 }} />
+        <Bar dataKey="Department" fill={SERIES[1]} radius={[0, 3, 3, 0]} {...BAR_ANIM} />
+        <Bar dataKey="College" fill={SERIES[4]} radius={[0, 3, 3, 0]} {...BAR_ANIM} />
+      </BarChart>
+    </ResponsiveContainer>
+  )
 }
 
 export function ChoiceChart({ rows, questionKey }) {
