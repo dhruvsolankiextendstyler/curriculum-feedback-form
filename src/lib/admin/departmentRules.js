@@ -163,12 +163,14 @@ export function resolveDepartment(
     ? departments.filter((row) => row.stream_id === streamId)
     : departments
 
-  const wanted = slugifyName(deptText)
-  // The code is derived from the RAW cell, not from the whitespace-collapsed
-  // name. `normaliseCode` mirrors the database trigger (`upper(btrim(code))`),
-  // which keeps internal runs, so a stored code of "B  SC" is unmatchable by any
-  // cell — including a byte-identical one — once the run has been collapsed.
-  const wantedCode = normaliseCode(department)
+  // describeDepartment() renders "Psychology (PSY)" — accept that format by
+  // splitting on a trailing parenthesized code so both halves can match.
+  const parenMatch = deptText.match(/^(.+?)\s*\(([^)]+)\)\s*$/)
+  const nameOnly = parenMatch ? normaliseName(parenMatch[1]) : deptText
+  const codeFromParen = parenMatch ? normaliseCode(parenMatch[2]) : null
+
+  const wanted = slugifyName(nameOnly)
+  const wantedCode = codeFromParen || normaliseCode(department)
   let matches = inScope.filter((row) => slugifyName(row.name) === wanted)
   if (matches.length === 0) {
     matches = inScope.filter((row) => row.code && normaliseCode(row.code) === wantedCode)
