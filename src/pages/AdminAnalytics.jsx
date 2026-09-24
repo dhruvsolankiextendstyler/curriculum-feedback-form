@@ -2,24 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   ArrowLeftRight, BarChart3, Download, Eye, FilterX, Lightbulb, MessageSquareText,
-  TrendingUp, Users, X,
+  Users, X,
 } from 'lucide'
 import Icon from '../components/Icon'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { isHod } from '../lib/constants'
 import {
-  BreakdownBars, BreakdownPie, ChoiceChart, CourseRankingTable,
+  BreakdownBars, BreakdownPie, ChoiceChart, DepartmentRankingTable,
   CycleDeltaTable, DepartmentBenchmarkChart, DistributionChart,
   HeatmapTable, ParticipationChart, QuestionAverages, ResponseQualityChart,
   SentimentPie, StakeholderComparisonChart, SubmissionTimelineChart,
-  TopTermsChart, TrendChart,
+  TopTermsChart,
 } from '../components/admin/AnalyticsCharts'
 import {
-  loadChoiceDistribution, loadCourseRanking, loadCycleDelta,
+  loadChoiceDistribution, loadCycleDelta, loadDepartmentRanking,
   loadDepartmentBenchmark, loadDistribution, loadFilterOptions,
   loadHeatmap, loadParticipation, loadQuestionStats, loadResponseQuality,
-  loadSubmissionTimeline, loadTextAnswers, loadTotals, loadTrends,
+  loadSubmissionTimeline, loadTextAnswers, loadTotals,
   streamExportRows,
 } from '../lib/analytics/queries'
 import { formatAvg, formatNormalised, spansVersions, versionNote } from '../lib/analytics/scales'
@@ -50,7 +50,6 @@ const TABS = [
   { id: 'overview', label: 'Overview', icon: Eye },
   { id: 'participation', label: 'Participation', icon: Users },
   { id: 'ratings', label: 'Ratings', icon: BarChart3 },
-  { id: 'trends', label: 'Trends', icon: TrendingUp },
   { id: 'insights', label: 'Insights', icon: Lightbulb },
   { id: 'feedback', label: 'Feedback', icon: MessageSquareText },
   { id: 'export', label: 'Export', icon: Download },
@@ -61,8 +60,6 @@ const EMPTY_FILTERS = {
   stakeholder: '',
   streamId: '',
   departmentId: '',
-  program: '',
-  courseKey: '',
 }
 
 export default function Analytics() {
@@ -192,9 +189,9 @@ export default function Analytics() {
             </select>
           </div>
           <div>
-            <label htmlFor="f-stakeholder">Stakeholder</label>
+            <label htmlFor="f-stakeholder">Role</label>
             <select id="f-stakeholder" value={filters.stakeholder} onChange={setFilter('stakeholder')}>
-              <option value="">All stakeholders</option>
+              <option value="">All roles</option>
               {(options?.stakeholders ?? []).map((s) => (
                 <option key={s} value={s}>
                   {ROLE_LABELS?.[s] ?? s}
@@ -259,24 +256,7 @@ export default function Analytics() {
               </select>
             )}
           </div>
-          <div>
-            <label htmlFor="f-program">Program</label>
-            <select id="f-program" value={filters.program} onChange={setFilter('program')}>
-              <option value="">All programs</option>
-              {(options?.programs ?? []).map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-          <div className="grow">
-            <label htmlFor="f-course">Course</label>
-            <select id="f-course" value={filters.courseKey} onChange={setFilter('courseKey')}>
-              <option value="">All courses</option>
-              {(options?.courses ?? []).map((c) => (
-                <option key={c.key} value={c.key}>{c.title}</option>
-              ))}
-            </select>
-          </div>
+          <div className="grow"></div>
           {hasFilters && (
             <button type="button" className="secondary" onClick={clearFilters}>
               <Icon icon={FilterX} size={16} />
@@ -284,14 +264,6 @@ export default function Analytics() {
             </button>
           )}
         </div>
-        {filters.program && (
-          <p className="muted small">
-            Four of the five forms ask for a program, so this slice can hold
-            students, faculty, alumni and academic peers &mdash; only employers are
-            excluded. Check the Stakeholder column before reporting it as a
-            student figure.
-          </p>
-        )}
         {(filters.streamId || filters.departmentId) && (
           <p className="muted small">
             A response records the department its author belonged to at the moment
@@ -322,7 +294,6 @@ export default function Analytics() {
         {tab === 'overview' && <OverviewTab filters={filters} setFilters={setFilters} selectCycle={selectCycle} />}
         {tab === 'participation' && <ParticipationTab filters={filters} />}
         {tab === 'ratings' && <RatingsTab filters={filters} />}
-        {tab === 'trends' && <TrendsTab filters={filters} />}
         {tab === 'insights' && <InsightsTab filters={filters} />}
         {tab === 'feedback' && <FeedbackTab filters={filters} />}
         {tab === 'export' && <ExportTab filters={filters} options={options} />}
@@ -400,10 +371,6 @@ function OverviewTab({ filters, setFilters, selectCycle }) {
           name: describeDepartment({ name: r.department, code: r.code }),
           value: r.responseCount,
           _key: r.departmentId,
-        }))
-        const programBars = (totals.byProgram ?? []).map((r) => ({
-          name: r.program, value: r.responseCount,
-          _key: r.program,
         }))
         const cycleBars = (totals.byCycle ?? []).map((r) => ({
           name: r.label, value: r.responseCount,
@@ -524,45 +491,6 @@ function OverviewTab({ filters, setFilters, selectCycle }) {
                 <p className="muted">No responses carry a department yet.</p>
               </div>
             )}
-
-            {programBars.length > 0 ? (
-              <div className="card">
-                <h2>By program</h2>
-                <BreakdownBars
-                  data={programBars}
-                  onSelect={(entry) => setDetail(
-                    detail?.type === 'program' && detail.name === entry.name ? null
-                      : { type: 'program', name: entry.name, responses: entry.value },
-                  )}
-                />
-                {detail?.type === 'program' && (
-                  <DetailCard onClose={() => setDetail(null)}>
-                    <strong>{detail.name}</strong>
-                    <span className="muted"> — {detail.responses} responses</span>
-                    <Breakdown
-                      rows={(totals.byCourse ?? []).filter((r) => r.program === detail.name)}
-                      nameOf={(r) => r.courseTitle}
-                      countOf={(r) => r.responseCount}
-                      empty="No courses linked to this program."
-                      inline
-                    />
-                  </DetailCard>
-                )}
-              </div>
-            ) : (
-              <div className="card">
-                <h2>By program</h2>
-                <p className="muted">No responses carry a program.</p>
-              </div>
-            )}
-
-            <Breakdown
-              title="By course"
-              rows={totals.byCourse}
-              nameOf={(r) => r.courseTitle}
-              countOf={(r) => r.responseCount}
-              empty="No responses are tied to a course."
-            />
 
             {cycleBars.length > 0 && (
               <div className="card">
@@ -1049,39 +977,8 @@ function RatingsTab({ filters }) {
   )
 }
 
-/** FR-39. Cycle is the axis here, so the year filter does not apply. */
-function TrendsTab({ filters }) {
-  const trendFilters = useMemo(
-    () => ({
-      stakeholder: filters.stakeholder,
-      program: filters.program,
-      courseKey: filters.courseKey,
-      streamId: filters.streamId,
-      departmentId: filters.departmentId,
-    }),
-    [
-      filters.stakeholder,
-      filters.program,
-      filters.courseKey,
-      filters.streamId,
-      filters.departmentId,
-    ],
-  )
-  const state = useAnalytics(loadTrends, trendFilters)
-
-  return (
-    <div className="card">
-      <h2>Year over year</h2>
-      <p className="muted small">
-        The academic-year filter does not apply here — the year is the axis.
-      </p>
-      <Panel state={state}>{(data) => <TrendChart rows={data} />}</Panel>
-    </div>
-  )
-}
-
 function InsightsTab({ filters }) {
-  const ranking = useAnalytics(loadCourseRanking, filters)
+  const ranking = useAnalytics(loadDepartmentRanking, filters)
   const timeline = useAnalytics(loadSubmissionTimeline, filters)
   const quality = useAnalytics(loadResponseQuality, filters)
   const benchmark = useAnalytics(loadDepartmentBenchmark, filters)
@@ -1089,10 +986,10 @@ function InsightsTab({ filters }) {
   return (
     <>
       <div className="card">
-        <h2>Course ranking</h2>
-        <p className="muted small">Courses sorted by normalised average rating.</p>
-        <Panel state={ranking} empty="No course-level rating data.">
-          {(data) => <CourseRankingTable rows={data} />}
+        <h2>Department ranking</h2>
+        <p className="muted small">Departments sorted by normalised average rating.</p>
+        <Panel state={ranking} empty="No department-level rating data.">
+          {(data) => <DepartmentRankingTable rows={data} />}
         </Panel>
       </div>
 

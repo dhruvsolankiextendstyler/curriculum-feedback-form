@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Inbox, MessageSquare, Send } from 'lucide'
 import Icon from '../components/Icon'
 import QuestionField from '../components/QuestionField'
@@ -29,8 +29,6 @@ const NO_PREFILL = { values: {}, locked: new Set(), fields: {} }
  */
 export default function FeedbackForm() {
   const { responseId } = useParams()
-  const [searchParams] = useSearchParams()
-  const scope = searchParams.get('scope') // 'college', 'department', or null (all)
   const { user, role, profile } = useAuth()
   const toast = useToast()
   const navigate = useNavigate()
@@ -159,12 +157,7 @@ export default function FeedbackForm() {
     }))
   }, [schema, questions])
 
-  const visibleSections = useMemo(() => {
-    if (!scope) return sections
-    if (scope === 'college') return sections.filter((s) => s.key !== 'department')
-    if (scope === 'department') return sections.filter((s) => s.key === 'about' || s.key === 'department')
-    return sections
-  }, [sections, scope])
+  const visibleSections = sections
 
   const visibleQuestions = useMemo(
     () => visibleSections.flatMap((s) => s.questions),
@@ -182,16 +175,11 @@ export default function FeedbackForm() {
   }, [visibleQuestions])
 
   const curriculumPdfUrl = useMemo(() => {
-    const pdfs = schema?.curriculumPdfs
-    if (!pdfs) return null
-    const path =
-      scope === 'department' ? (pdfs.department ?? pdfs.college) :
-      scope === 'college' ? pdfs.college :
-      (pdfs.department ?? pdfs.college)
+    const path = schema?.curriculumPdf
     if (!path) return null
     const { data } = supabase.storage.from('curriculum-pdfs').getPublicUrl(path)
     return data?.publicUrl ?? null
-  }, [schema, scope])
+  }, [schema])
 
   const isOpen = cycleIsOpen(cycle)
   const isEditing = Boolean(responseId)
@@ -287,21 +275,19 @@ export default function FeedbackForm() {
           <Link className="button-link" to="/feedback">
             <Icon icon={Inbox} size={16} /> My submissions
           </Link>
-          {scope !== 'department' && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setValues({ ...prefill.values })
-                setErrors({})
-                setSavedId(null)
-                setStatus({ phase: 'ready', message: null })
-                navigate(`/feedback/new${scope ? `?scope=${scope}` : ''}`)
-              }}
-            >
-              <Icon icon={MessageSquare} size={16} /> Give feedback for another course
-            </button>
-          )}
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              setValues({ ...prefill.values })
+              setErrors({})
+              setSavedId(null)
+              setStatus({ phase: 'ready', message: null })
+              navigate('/feedback/new')
+            }}
+          >
+            <Icon icon={MessageSquare} size={16} /> Give feedback for another course
+          </button>
         </div>
       </div>
     )
@@ -313,8 +299,7 @@ export default function FeedbackForm() {
     <section>
       <h1>
         {schema.form.title}
-        {scope === 'college' && ' — College-wide'}
-        {scope === 'department' && ` — ${schema.departmentName || 'Department'}`}
+        {schema.departmentName && ` — ${schema.departmentName}`}
       </h1>
       <p className="muted">
         Cycle <strong>{cycle.label}</strong>

@@ -52,8 +52,7 @@ export default function FeedbackHome() {
   const { cycle, schema, submissions } = state.data
   const form = schema?.form ?? null
   const open = cycleIsOpen(cycle)
-  const hasDeptQuestions =
-    schema?.sections?.some((s) => s.key === 'department') ?? false
+  const hasQuestions = (schema?.questions?.length ?? 0) > 0
 
   return (
     <section>
@@ -79,11 +78,11 @@ export default function FeedbackHome() {
         </div>
       )}
 
-      {cycle && form && (
+      {cycle && form && hasQuestions && (
         <>
           <div className="feedback-cards">
             <div className="card">
-              <h2>College-wide Feedback</h2>
+              <h2>{schema.departmentName || 'Curriculum'} Feedback</h2>
               <p className="muted">
                 Cycle <strong>{cycle.label}</strong>
                 {open ? (
@@ -95,7 +94,7 @@ export default function FeedbackHome() {
               {open ? (
                 <Link
                   className="button-link"
-                  to={`/feedback/new?scope=college`}
+                  to="/feedback/new"
                 >
                   <Icon icon={MessageSquare} size={16} />
                   {submissions.length
@@ -108,35 +107,6 @@ export default function FeedbackHome() {
                 </p>
               )}
             </div>
-
-            {hasDepartment && hasDeptQuestions && (
-              <div className="card">
-                <h2>{schema.departmentName || 'Department'} Feedback</h2>
-                <p className="muted">
-                  Cycle <strong>{cycle.label}</strong>
-                  {open ? (
-                    <> — open until {new Date(cycle.closes_at).toLocaleDateString()}</>
-                  ) : (
-                    <> — closed on {new Date(cycle.closes_at).toLocaleDateString()}</>
-                  )}
-                </p>
-                {open ? (
-                  <Link
-                    className="button-link"
-                    to="/feedback/new?scope=department"
-                  >
-                    <Icon icon={MessageSquare} size={16} />
-                    {submissions.length
-                      ? 'Give feedback for another course'
-                      : 'Start feedback'}
-                  </Link>
-                ) : (
-                  <p className="muted">
-                    This cycle is closed. Existing submissions are read-only.
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           <h2>My submissions</h2>

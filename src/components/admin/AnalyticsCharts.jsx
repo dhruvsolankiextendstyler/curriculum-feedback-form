@@ -472,20 +472,20 @@ function heatColor(value) {
 }
 
 /** Sorted table of courses by normalised average. */
-export function CourseRankingTable({ rows }) {
-  if (!rows?.length) return <p className="muted">No course-level rating data in this slice.</p>
+export function DepartmentRankingTable({ rows }) {
+  if (!rows?.length) return <p className="muted">No department-level rating data in this slice.</p>
   return (
     <div className="table-wrap">
       <table className="data-table">
         <thead>
-          <tr><th>#</th><th>Course</th><th>Program</th><th>Avg</th><th>Normalised</th><th>Responses</th><th>Rated</th></tr>
+          <tr><th>#</th><th>Department</th><th>Stream</th><th>Avg</th><th>Normalised</th><th>Responses</th><th>Rated</th></tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={r.course_key}>
+            <tr key={r.department_id}>
               <td>{i + 1}</td>
-              <td title={r.course_key}>{r.course_title || r.course_key}</td>
-              <td>{r.program || '—'}</td>
+              <td>{r.department_name}{r.department_code ? ` (${r.department_code})` : ''}</td>
+              <td>{r.stream_name || '—'}</td>
               <td>{r.avg_score != null ? Number(r.avg_score).toFixed(2) : '—'}</td>
               <td>{r.normalised_avg != null ? `${(Number(r.normalised_avg) * 100).toFixed(1)}%` : '—'}</td>
               <td>{r.n_responses}</td>

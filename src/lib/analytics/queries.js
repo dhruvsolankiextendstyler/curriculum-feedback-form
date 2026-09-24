@@ -191,11 +191,10 @@ export const loadHeatmap = cached(
 )
 
 /** Avg normalised score per course, sorted. Cached 60 s. */
-export const loadCourseRanking = cached(
-  (filters) => call('analytics_course_ranking', {
+export const loadDepartmentRanking = cached(
+  (filters) => call('analytics_department_ranking', {
     p_cycle_id: filters.cycleId || null,
     p_stakeholder: filters.stakeholder || null,
-    p_program: filters.program || null,
     p_stream_id: filters.streamId || null,
     p_department_id: filters.departmentId || null,
   }),

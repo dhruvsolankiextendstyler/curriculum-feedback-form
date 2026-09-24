@@ -12,7 +12,6 @@ import { useToast } from '../context/ToastContext'
 import { isAdmin, RESPONDENT_ROLES, ROLE_LABELS } from '../lib/constants'
 import { supabase } from '../lib/supabase'
 import {
-  COLLEGE_WIDE,
   countAnswers,
   createQuestion,
   deactivateQuestion,
@@ -37,7 +36,7 @@ const TYPE_LABELS = {
 const EMPTY_TREE = { streams: [], departments: [] }
 
 function pdfStoragePath(formId, departmentId) {
-  return departmentId ? `${formId}/${departmentId}.pdf` : `${formId}/college-wide.pdf`
+  return `${formId}/${departmentId}.pdf`
 }
 
 async function uploadCurriculumPdf(formId, departmentId, file) {
@@ -47,12 +46,11 @@ async function uploadCurriculumPdf(formId, departmentId, file) {
     .upload(path, file, { upsert: true, contentType: 'application/pdf' })
   if (uploadErr) throw new Error(uploadErr.message)
 
-  const deptFilter = departmentId || null
   const { data: existing } = await supabase
     .from('curriculum_pdfs')
     .select('id')
     .eq('form_id', formId)
-    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+    .eq('department_id', departmentId)
     .maybeSingle()
 
   if (existing) {
@@ -64,7 +62,7 @@ async function uploadCurriculumPdf(formId, departmentId, file) {
   } else {
     const { error } = await supabase
       .from('curriculum_pdfs')
-      .insert({ form_id: formId, department_id: deptFilter, pdf_path: path })
+      .insert({ form_id: formId, department_id: departmentId, pdf_path: path })
     if (error) throw new Error(error.message)
   }
   return path
@@ -72,12 +70,11 @@ async function uploadCurriculumPdf(formId, departmentId, file) {
 
 async function removeCurriculumPdf(formId, departmentId, path) {
   await supabase.storage.from('curriculum-pdfs').remove([path])
-  const deptFilter = departmentId || null
   const { error } = await supabase
     .from('curriculum_pdfs')
     .delete()
     .eq('form_id', formId)
-    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+    .eq('department_id', departmentId)
   if (error) throw new Error(error.message)
 }
 
@@ -87,12 +84,11 @@ function getCurriculumPdfUrl(path) {
 }
 
 async function loadCurriculumPdfForAdmin(formId, departmentId) {
-  const deptFilter = departmentId || null
   const { data } = await supabase
     .from('curriculum_pdfs')
     .select('pdf_path')
     .eq('form_id', formId)
-    [deptFilter ? 'eq' : 'is']('department_id', deptFilter)
+    .eq('department_id', departmentId)
     .maybeSingle()
   return data?.pdf_path ?? null
 }
@@ -100,10 +96,6 @@ async function loadCurriculumPdfForAdmin(formId, departmentId) {
 /**
  * FR-25 to FR-34, FR-53: question CRUD with versioning, reorder, soft delete and
  * history — for one *(form, department)* set at a time.
- *
- * Two pickers decide the set. An admin can choose any department, including the
- * college-wide set that every respondent answers. An HOD is pinned to their own
- * department and sees the college-wide set read-only, because an admin owns it.
  */
 export default function AdminQuestions() {
   const { user, profile, role } = useAuth()
@@ -113,7 +105,7 @@ export default function AdminQuestions() {
 
   const [forms, setForms] = useState([])
   const [formId, setFormId] = useState('')
-  const [departmentId, setDepartmentId] = useState(COLLEGE_WIDE)
+  const [departmentId, setDepartmentId] = useState('')
   const [tree, setTree] = useState(EMPTY_TREE)
   const [questions, setQuestions] = useState([])
   const [scales, setScales] = useState([])
@@ -149,8 +141,11 @@ export default function AdminQuestions() {
         setScales(scaleRows)
         setTree(loadedTree)
         setFormId((current) => current || ordered[0]?.id || '')
-        // An HOD opens on their own set: it is the only one they can write.
-        if (!admin && profile?.department_id) setDepartmentId(profile.department_id)
+        // Default to the user's own department, or the first available one.
+        const defaultDept = profile?.department_id
+          || loadedTree.departments[0]?.id
+          || ''
+        setDepartmentId((current) => current || defaultDept)
       } catch (err) {
         if (active) { setLoading(false); toast.error(err.message) }
       }
@@ -195,12 +190,7 @@ export default function AdminQuestions() {
     ? tree.departments.find((d) => d.id === departmentId)
     : null
 
-  /**
-   * An HOD looking at the college-wide set. Everything is hidden rather than
-   * disabled-and-failing, because RLS would refuse the write anyway and a button
-   * that always errors is worse than no button.
-   */
-  const readOnly = !admin && !departmentId
+  const readOnly = false
 
   /** The department slug namespaces a new key — see deriveQuestionKey. */
   const keyPrefix = currentDepartment?.slug ?? ''
@@ -302,7 +292,7 @@ export default function AdminQuestions() {
         keyPrefix: target?.slug ?? '',
         actorId: user.id,
       })
-      const where = target ? target.name : 'the college-wide set'
+      const where = target?.name ?? 'the selected department'
       const form = forms.find((f) => f.id === targetFormId)
       setNotice(
         `Copied to ${where}${form ? ` on the ${ROLE_LABELS[form.stakeholder_type]} form` : ''}.`,
@@ -416,7 +406,6 @@ export default function AdminQuestions() {
               setCopying(null)
             }}
           >
-            <option value={COLLEGE_WIDE}>All departments (college-wide)</option>
             {admin ? (
               departmentsByStream.map((group) => (
                 <optgroup key={group.stream.id} label={group.stream.name}>
@@ -451,9 +440,7 @@ export default function AdminQuestions() {
       <div className="card">
         <label><strong>Curriculum PDF</strong></label>
         <p className="muted small">
-          {departmentId
-            ? `PDF for ${currentDepartment?.name ?? 'this department'} respondents. Falls back to the college-wide PDF if not set.`
-            : 'College-wide PDF shown to all respondents of this form.'}
+          PDF for {currentDepartment?.name ?? 'this department'} respondents.
         </p>
         {pdfUrl ? (
           <div className="pdf-row">
@@ -500,21 +487,11 @@ export default function AdminQuestions() {
       </div>
 
       <div className="card">
-        {departmentId ? (
-          <p className="muted">
-            These questions are asked only of{' '}
-            <strong>{currentDepartment?.name ?? 'this department'}</strong>{' '}
-            respondents, in addition to the college-wide set. Other departments never
-            see them, and each keeps its own analytics.
-          </p>
-        ) : (
-          <p className="muted">
-            The college-wide set. Every respondent of this type answers these,
-            whatever their department.{' '}
-            {readOnly &&
-              'An administrator owns this set — switch to your own department to make changes.'}
-          </p>
-        )}
+        <p className="muted">
+          Questions for{' '}
+          <strong>{currentDepartment?.name ?? 'this department'}</strong>.
+          Only respondents of this department see these questions.
+        </p>
       </div>
 
       {/* Adding a new question has no row to expand into, so its editor opens
@@ -764,8 +741,6 @@ function CopyPanel({
           value={targetDepartmentId}
           onChange={(event) => setTargetDepartmentId(event.target.value)}
         >
-          {/* An HOD cannot write the college-wide set, so it is not offered. */}
-          {admin && <option value={COLLEGE_WIDE}>All departments (college-wide)</option>}
           {admin
             ? groups.map((group) => (
                 <optgroup key={group.stream.id} label={group.stream.name}>

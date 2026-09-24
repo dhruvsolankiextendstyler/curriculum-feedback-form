@@ -10,13 +10,8 @@ import { supabase } from './supabase'
  * `current_version_id` here means a respondent always answers the newest
  * wording, while past answers keep pointing at the wording they were given.
  *
- * Since 0011_hod_scope.sql a form has two question sets: the college-wide one
- * (`department_id is null`, admin-managed) and the respondent's own department's
- * (HOD-managed). A respondent answers both, college-wide questions first.
- * `questions_read` already limits the rows to those two sets, so the filter below
- * is belt-and-braces — it makes the intent readable here rather than only in the
- * policy, and it keeps a respondent whose department is not yet loaded from
- * briefly seeing another department's questions.
+ * All questions belong to a department. A respondent sees only their own
+ * department's questions.
  */
 export const loadForm = cached(async function (role, departmentId = null) {
   const { data: form, error: formError } = await supabase
@@ -42,16 +37,12 @@ export const loadForm = cached(async function (role, departmentId = null) {
     .order('display_order', { ascending: true })
     .order('question_key', { ascending: true })
 
-  query = departmentId
-    ? query.or(`department_id.is.null,department_id.eq.${departmentId}`)
-    : query.is('department_id', null)
+  if (departmentId) query = query.eq('department_id', departmentId)
 
   const { data: rows, error: qError } = await query
 
   if (qError) throw new Error(qError.message)
 
-  // Supabase returns an embedded to-one join as an object or a 1-element array
-  // depending on how it infers the relationship; normalise both.
   const questions = (rows ?? [])
     .map((row) => {
       const v = Array.isArray(row.question_versions)
@@ -74,33 +65,21 @@ export const loadForm = cached(async function (role, departmentId = null) {
       }
     })
     .filter(Boolean)
-    // Each set numbers its own display_order from 1, so the two would interleave
-    // on a single sort. College-wide first, then the department's.
-    //
-    // `key` breaks a display_order tie. Two live rows CAN share a number — there
-    // is no unique constraint and a restore can collide — and without a second
-    // key this reader and `loadQuestionsForAdmin` would put the same two rows in
-    // different orders, so the admin's list and the respondent's form would
-    // disagree (FR-29, FR-33).
-    .sort((a, b) =>
-      a.departmentId === b.departmentId
-        ? a.order - b.order || a.key.localeCompare(b.key)
-        : (a.departmentId ? 1 : 0) - (b.departmentId ? 1 : 0),
-    )
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key))
 
-  const [scales, departmentName, curriculumPdfs] = await Promise.all([
+  const [scales, departmentName, curriculumPdf] = await Promise.all([
     loadScales(questions),
     departmentId ? loadDepartmentName(departmentId) : null,
-    loadCurriculumPdfs(form.id, departmentId),
+    departmentId ? loadCurriculumPdf(form.id, departmentId) : null,
   ])
 
   return {
     form,
     questions,
     scales,
-    curriculumPdfs,
+    curriculumPdf,
     departmentName,
-    sections: sectionise(questions, departmentName),
+    sections: sectionise(questions),
   }
 }, 5 * 60_000)
 
@@ -114,21 +93,14 @@ async function loadDepartmentName(departmentId) {
   return data?.name ?? null
 }
 
-async function loadCurriculumPdfs(formId, departmentId) {
-  let query = supabase
+async function loadCurriculumPdf(formId, departmentId) {
+  const { data } = await supabase
     .from('curriculum_pdfs')
-    .select('pdf_path, department_id')
+    .select('pdf_path')
     .eq('form_id', formId)
-
-  query = departmentId
-    ? query.or(`department_id.is.null,department_id.eq.${departmentId}`)
-    : query.is('department_id', null)
-
-  const { data } = await query
-  if (!data || data.length === 0) return { college: null, department: null }
-  const college = data.find((r) => !r.department_id)?.pdf_path ?? null
-  const department = data.find((r) => r.department_id === departmentId)?.pdf_path ?? null
-  return { college, department }
+    .eq('department_id', departmentId)
+    .maybeSingle()
+  return data?.pdf_path ?? null
 }
 
 /** Fetches only the scales this form actually references. */
@@ -158,37 +130,11 @@ async function loadScales(questions) {
 }
 
 /**
- * FR-8 asks for the form in logical sections. Rather than hard-code which key
- * belongs where per form, derive it from the seeded order: the rating block sits
- * in one contiguous run, so anything before it is profile and anything after is
- * closing feedback. Holds for all five forms.
- *
- * The department's own questions are a section of their own rather than merged in.
- * The derivation above depends on the ratings forming ONE contiguous run, and a
- * department rating question appended after the college-wide free-text block would
- * break it — the "Your feedback" section would swallow a rating, or the rating
- * section would swallow the free text. Keeping them separate also tells the
- * respondent whose question they are answering.
+ * FR-8 asks for the form in logical sections. Derived from the seeded order:
+ * the rating block sits in one contiguous run, so anything before it is profile
+ * and anything after is closing feedback.
  */
-function sectionise(questions, departmentName = null) {
-  const collegeWide = questions.filter((q) => !q.departmentId)
-  const departmental = questions.filter((q) => q.departmentId)
-
-  const sections = sectioniseCollegeWide(collegeWide)
-
-  if (departmental.length > 0) {
-    sections.push({
-      key: 'department',
-      title: departmentName ? `From ${departmentName}` : 'From your department',
-      hint: 'Asked by your department in addition to the questions above.',
-      questions: departmental,
-    })
-  }
-
-  return sections
-}
-
-function sectioniseCollegeWide(questions) {
+function sectionise(questions) {
   const first = questions.findIndex((q) => q.type === 'rating')
   const lastRating = questions.findLastIndex((q) => q.type === 'rating')
 

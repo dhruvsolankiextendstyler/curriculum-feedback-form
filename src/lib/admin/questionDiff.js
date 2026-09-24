@@ -113,8 +113,8 @@ export function storedOptionValue(option) {
  * `analytics_choice_distribution` group by (stakeholder, form, question_key, scale)
  * with no question id in the key, so two departments both writing "Lab safety" on
  * the student form would have their Likert bars silently pooled into one chart.
- * A college-wide question passes no prefix and keeps its bare key, so nothing that
- * already exists changes.
+ * The prefix ensures identically-worded questions in different departments have
+ * distinct keys.
  */
 export function deriveQuestionKey(text, existingKeys = [], prefix = '') {
   const slug = slugifyOptionValue(text) || `q_${Date.now().toString(36)}`

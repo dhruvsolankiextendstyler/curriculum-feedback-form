@@ -18,24 +18,14 @@ import {
  * `question_options_immutable` triggers, so a bug here surfaces as a raised
  * exception rather than silently rewritten history.
  *
- * Since 0011_hod_scope.sql a question also belongs to a *set*: `department_id`
- * NULL is the college-wide set that only an admin may write, and a non-null one is
- * that department's own, writable by its HOD. Every function here takes the set it
- * is working in explicitly rather than inferring it, because the two are edited
- * from the same page and the wrong default would put a question in front of the
- * whole college.
+ * Every question belongs to a department. Functions here take the department
+ * they are working in explicitly.
  */
-
-/** The value the department picker uses for the college-wide set. */
-export const COLLEGE_WIDE = ''
 
 /**
  * Every question in one *(form, department)* set, including soft-deleted ones.
- *
- * `departmentId` falsy means the college-wide set. `.is('department_id', null)` and
- * `.eq(...)` are genuinely different queries here, so the caller must say which.
  */
-export async function loadQuestionsForAdmin(formId, departmentId = COLLEGE_WIDE) {
+export async function loadQuestionsForAdmin(formId, departmentId) {
   let query = supabase
     .from('questions')
     .select(
@@ -48,14 +38,9 @@ export async function loadQuestionsForAdmin(formId, departmentId = COLLEGE_WIDE)
     )
     .eq('form_id', formId)
     .order('display_order', { ascending: true })
-    // Tiebreaker. display_order carries no unique constraint and a restore can
-    // legitimately tie, so without a second key this reader and `loadForm`
-    // would order the same two rows differently (FR-29, FR-33).
     .order('question_key', { ascending: true })
 
-  query = departmentId
-    ? query.eq('department_id', departmentId)
-    : query.is('department_id', null)
+  if (departmentId) query = query.eq('department_id', departmentId)
 
   const { data, error } = await query
   if (error) throw new Error(error.message)
@@ -141,13 +126,12 @@ export async function loadScales() {
  * FR-25: append a question to one *(form, department)* set.
  *
  * `existingKeys` should be every key on the FORM (see loadFormKeys); `keyPrefix` is
- * the department's slug for a department question and empty for a college-wide one,
- * which is what keeps two departments' identically-worded questions apart in
- * analytics. `display_order` counts within the set, so each numbers itself.
+ * the department's slug, which keeps two departments' identically-worded questions
+ * apart in analytics. `display_order` counts within the set.
  */
 export async function createQuestion({
   formId,
-  departmentId = COLLEGE_WIDE,
+  departmentId,
   draft,
   existingKeys,
   keyPrefix = '',
@@ -159,7 +143,7 @@ export async function createQuestion({
     .from('questions')
     .insert({
       form_id: formId,
-      department_id: departmentId || null,
+      department_id: departmentId,
       question_key: deriveQuestionKey(draft.text, existingKeys, keyPrefix),
       is_required: Boolean(draft.required),
       display_order: nextOrder,
@@ -192,7 +176,7 @@ export async function createQuestion({
 export async function duplicateQuestion({
   question,
   targetFormId,
-  targetDepartmentId = COLLEGE_WIDE,
+  targetDepartmentId,
   keyPrefix = '',
   actorId,
 }) {
@@ -230,9 +214,7 @@ async function nextDisplayOrder(formId, departmentId) {
     .order('display_order', { ascending: false })
     .limit(1)
 
-  query = departmentId
-    ? query.eq('department_id', departmentId)
-    : query.is('department_id', null)
+  if (departmentId) query = query.eq('department_id', departmentId)
 
   const { data, error } = await query.maybeSingle()
   if (error) throw new Error(translateQuestionError(error))
@@ -554,7 +536,7 @@ export function translateQuestionError(error) {
     return 'Per-department questions need the database migration applied first: supabase/migrations/0011_hod_scope.sql.'
   }
   if (error?.code === '42501' || /row-level security/i.test(message)) {
-    return 'You can only change questions in your own department. The college-wide set is managed by an administrator.'
+    return 'You can only change questions in your own department.'
   }
   return message
 }
