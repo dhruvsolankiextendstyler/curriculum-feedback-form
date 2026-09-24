@@ -12,7 +12,8 @@
       "Bash(command -v claude)",
       "Bash(claude --version)",
       "Bash(command -v npx)",
-      "mcp__supabase__list_tables"
+      "mcp__supabase__list_tables",
+      "mcp__supabase__execute_sql"
     ]
   },
   "enabledMcpjsonServers": [
