@@ -426,10 +426,6 @@ function OverviewTab({ filters, setFilters, selectCycle }) {
                 <span className="stat-label">Answers</span>
               </div>
             </div>
-            <p className="muted small">
-              One person can submit for several courses, so responses exceed people.
-            </p>
-
             {stakeholderPie.length > 0 && (
               <div className="card">
                 <h2>By stakeholder</h2>
