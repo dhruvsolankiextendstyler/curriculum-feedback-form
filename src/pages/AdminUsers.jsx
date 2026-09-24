@@ -33,20 +33,44 @@ import { loadDepartmentTree } from '../lib/admin/departments'
 const EMPTY_TREE = { streams: [], departments: [] }
 
 /**
- * What every filter except the role reverts to when a role is picked.
+ * What every filter except the role and the population selector reverts to when
+ * a role is picked.
  *
  * Choosing a role is the start of a new question — "show me the faculty" — and
  * carrying a stale department or search term into it answers a different one,
- * usually with an empty table and no clue why. `view` is deliberately NOT in
- * here: Current/Removed selects which LIST is being filtered, and resetting it
- * would throw an admin out of the removed-users list mid-search.
+ * usually with an empty table and no clue why. `view` and `status` are
+ * deliberately NOT in here: together they are the "Show" selector below, which
+ * chooses the population being looked at (all/active/inactive/removed). That is
+ * the primary question a role narrows, not a leftover to reset — and resetting
+ * it would throw an admin out of the removed-users list mid-search.
  */
 const FILTER_DEFAULTS = {
-  status: '',
   streamId: '',
   departmentId: '',
   search: '',
   sort: 'recent',
+}
+
+/**
+ * The single "Show" filter. It merges what used to be two dropdowns — which list
+ * (current vs the soft-removed one, `view`) and, within the current list, the
+ * account status — into one set of mutually exclusive choices. The pair could
+ * express a combination nobody wants (a status narrowing applied to the removed
+ * list); the four options here cannot.
+ */
+const POPULATION_FILTERS = {
+  all: { view: 'current', status: '' },
+  active: { view: 'current', status: 'active' },
+  inactive: { view: 'current', status: 'inactive' },
+  removed: { view: 'removed', status: '' },
+}
+
+/** Which "Show" option a view + status pair currently corresponds to. */
+function populationOf({ view, status }) {
+  if (view === 'removed') return 'removed'
+  if (status === 'active') return 'active'
+  if (status === 'inactive') return 'inactive'
+  return 'all'
 }
 
 /**
@@ -66,6 +90,7 @@ export default function AdminUsers() {
 
   const [filters, setFilters] = useState({
     view: 'current',
+    status: '',
     role: '',
     ...FILTER_DEFAULTS,
   })
@@ -243,6 +268,7 @@ export default function AdminUsers() {
   }
 
   const removedView = filters.view === 'removed'
+  const population = populationOf(filters)
 
   return (
     <section>
@@ -294,16 +320,23 @@ export default function AdminUsers() {
 
       <div className="card filters">
         <div>
-          <label htmlFor="filter-list">User list</label>
+          <label htmlFor="filter-population">Show</label>
           <select
-            id="filter-list"
-            value={filters.view}
+            id="filter-population"
+            value={population}
             onChange={(event) => {
+              // Switching population changes which rows — and which row actions —
+              // the table shows, so any open inline editor is closed first.
               setEditing(null)
-              setFilters((current) => ({ ...current, view: event.target.value }))
+              setFilters((current) => ({
+                ...current,
+                ...POPULATION_FILTERS[event.target.value],
+              }))
             }}
           >
-            <option value="current">Current users</option>
+            <option value="all">All current users</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
             <option value="removed">Removed users</option>
           </select>
         </div>
@@ -330,20 +363,6 @@ export default function AdminUsers() {
                 {ROLE_LABELS[role]}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="filter-status">Status</label>
-          <select
-            id="filter-status"
-            value={filters.status}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, status: event.target.value }))
-            }
-          >
-            <option value="">Any status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
           </select>
         </div>
         {hasDepartments && !hod && (
