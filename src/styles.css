@@ -20,8 +20,7 @@
   --radius: 5px;
   --shadow: 0 1px 2px rgba(23, 25, 28, 0.04);
   --shadow-md: 0 6px 20px rgba(23, 25, 28, 0.1);
-  --font: 'Public Sans', system-ui, -apple-system, sans-serif;
-  --font-serif: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --font: 'Poppins', system-ui, -apple-system, sans-serif;
   --sidebar-w: 220px;
   color-scheme: light;
 }
@@ -157,7 +156,7 @@ body {
    Typography
    ============================================================ */
 h1 {
-  font-family: var(--font-serif);
+  font-family: var(--font);
   font-size: 2.2rem;
   font-weight: 500;
   margin: 0 0 20px;
@@ -174,7 +173,7 @@ section > h1 {
 }
 
 h2 {
-  font-family: var(--font-serif);
+  font-family: var(--font);
   font-size: 1.3rem;
   font-weight: 500;
   margin: 0 0 8px;
@@ -228,7 +227,7 @@ a:hover {
 }
 
 .topbar-brand {
-  font-family: var(--font-serif);
+  font-family: var(--font);
   font-weight: 500;
   font-size: 1.2rem;
   letter-spacing: 0;
@@ -936,7 +935,7 @@ a:active svg {
 
 .stat-value {
   display: block;
-  font-family: var(--font-serif);
+  font-family: var(--font);
   font-size: 2.5rem;
   font-weight: 500;
   letter-spacing: -0.01em;
