@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Inbox, MessageSquare, Send } from 'lucide'
+import { Link, useParams } from 'react-router-dom'
+import { ArrowLeft, Inbox, Send } from 'lucide'
 import Icon from '../components/Icon'
 import QuestionField from '../components/QuestionField'
 import { useAuth } from '../context/AuthContext'
@@ -31,7 +31,7 @@ export default function FeedbackForm() {
   const { responseId } = useParams()
   const { user, role, profile } = useAuth()
   const toast = useToast()
-  const navigate = useNavigate()
+
 
   const [schema, setSchema] = useState(null)
   const [cycle, setCycle] = useState(null)
@@ -275,19 +275,6 @@ export default function FeedbackForm() {
           <Link className="button-link" to="/feedback">
             <Icon icon={Inbox} size={16} /> My submissions
           </Link>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              setValues({ ...prefill.values })
-              setErrors({})
-              setSavedId(null)
-              setStatus({ phase: 'ready', message: null })
-              navigate('/feedback/new')
-            }}
-          >
-            <Icon icon={MessageSquare} size={16} /> Give feedback for another course
-          </button>
         </div>
       </div>
     )

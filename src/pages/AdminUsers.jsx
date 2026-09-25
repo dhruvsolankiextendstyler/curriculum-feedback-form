@@ -760,7 +760,7 @@ function TempPassword({ userId }) {
   }
 
   if (status === 'gone') {
-    return <span className="muted small">password already changed</span>
+    return <span className="muted small">not available</span>
   }
 
   if (status === 'error') {

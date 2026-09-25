@@ -9,14 +9,14 @@ import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
 import { isHod } from '../lib/constants'
 import {
-  BreakdownBars, BreakdownPie, ChoiceChart, DepartmentRankingTable,
+  BreakdownBars, BreakdownPie, DepartmentRankingTable,
   CycleDeltaTable, DepartmentBenchmarkChart, DistributionChart,
   HeatmapTable, ParticipationChart, QuestionAverages, ResponseQualityChart,
   SentimentPie, StakeholderComparisonChart, SubmissionTimelineChart,
   TopTermsChart,
 } from '../components/admin/AnalyticsCharts'
 import {
-  loadChoiceDistribution, loadCycleDelta, loadDepartmentRanking,
+  loadCycleDelta, loadDepartmentRanking,
   loadDepartmentBenchmark, loadDistribution, loadFilterOptions,
   loadHeatmap, loadParticipation, loadQuestionStats, loadResponseQuality,
   loadSubmissionTimeline, loadTextAnswers, loadTotals,
@@ -395,7 +395,7 @@ function OverviewTab({ filters, setFilters, selectCycle }) {
             </div>
             {stakeholderPie.length > 0 && (
               <div className="card">
-                <h2>By stakeholder</h2>
+                <h2>By role</h2>
                 <div className="chart-table-row">
                   <BreakdownPie
                     data={stakeholderPie}
@@ -617,7 +617,7 @@ function ParticipationTab({ filters }) {
 
             {stData.length > 0 && (
               <div className="card">
-                <h2>By stakeholder</h2>
+                <h2>By role</h2>
                 <ParticipationChart
                   data={stData}
                   selected={selectedSt}
@@ -849,7 +849,7 @@ function CompareTab({ filters }) {
 function RatingsTab({ filters }) {
   const stats = useAnalytics(loadQuestionStats, filters)
   const dist = useAnalytics(loadDistribution, filters)
-  const choices = useAnalytics(loadChoiceDistribution, filters)
+
   const [selected, setSelected] = useState(null)
   const distRef = useRef(null)
 
@@ -876,6 +876,15 @@ function RatingsTab({ filters }) {
         </Panel>
         <p className="muted small">Click a bar to see its answer distribution.</p>
       </div>
+
+      {selected && (
+        <div className="card" ref={distRef}>
+          <h2>Distribution</h2>
+          <Panel state={dist}>
+            {(data) => <DistributionChart rows={data} questionKey={selected} />}
+          </Panel>
+        </div>
+      )}
 
       <div className="card">
         <h2>Question detail</h2>
@@ -949,30 +958,6 @@ function RatingsTab({ filters }) {
         </p>
       </div>
 
-      {selected && (
-        <div className="card" ref={distRef}>
-          <h2>Distribution</h2>
-          <Panel state={dist}>
-            {(data) => <DistributionChart rows={data} questionKey={selected} />}
-          </Panel>
-        </div>
-      )}
-
-      <div className="card">
-        <h2>Choice questions</h2>
-        <Panel state={choices}>
-          {(data) => {
-            const keys = [...new Set(data.map((r) => r.question_key))]
-            if (!keys.length) return <p className="muted">No choice answers in this slice.</p>
-            return keys.map((key) => (
-              <div key={key}>
-                <h3 className="small">{key}</h3>
-                <ChoiceChart rows={data} questionKey={key} />
-              </div>
-            ))
-          }}
-        </Panel>
-      </div>
     </>
   )
 }
@@ -1056,6 +1041,7 @@ function FeedbackTab({ filters }) {
   )
 
   const [sentiment, setSentiment] = useState(null)
+  const [topic, setTopic] = useState(null)
 
   return (
     <>
@@ -1137,19 +1123,23 @@ function FeedbackTab({ filters }) {
                 {terms.length > 0 && (
                   <div style={{ marginTop: 20 }}>
                     <h3>Most mentioned topics</h3>
-                    <TopTermsChart terms={terms} />
+                    <TopTermsChart terms={terms} selected={topic} onSelect={setTopic} />
                   </div>
                 )}
 
-                {sentiment && (
+                {(sentiment || topic) && (
                   <p className="muted small" style={{ marginTop: 12 }}>
-                    Showing <strong>{sentiment}</strong> answers only.{' '}
-                    <button type="button" className="linklike" onClick={() => setSentiment(null)}>
-                      Show all
+                    Filtering by{' '}
+                    {sentiment && <><strong>{sentiment}</strong> sentiment</>}
+                    {sentiment && topic && ' + '}
+                    {topic && <>topic <strong>{topic}</strong></>}
+                    .{' '}
+                    <button type="button" className="linklike" onClick={() => { setSentiment(null); setTopic(null) }}>
+                      Clear filters
                     </button>
                   </p>
                 )}
-                <div className="table-wrap" style={{ marginTop: sentiment ? 4 : 20 }}>
+                <div className="table-wrap" style={{ marginTop: (sentiment || topic) ? 4 : 20 }}>
                   <table className="data-table">
                     <thead>
                       <tr>
@@ -1161,6 +1151,7 @@ function FeedbackTab({ filters }) {
                     <tbody>
                       {summary.rows
                         .filter((row) => !sentiment || row.sentiment.label === sentiment)
+                        .filter((row) => !topic || row.value_text?.toLowerCase().includes(topic.toLowerCase()))
                         .map((row) => (
                         <tr key={row.answer_id}>
                           <td>

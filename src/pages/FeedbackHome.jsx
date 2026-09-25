@@ -91,21 +91,19 @@ export default function FeedbackHome() {
                   <> — closed on {new Date(cycle.closes_at).toLocaleDateString()}</>
                 )}
               </p>
-              {open ? (
+              {open && !submissions.length ? (
                 <Link
                   className="button-link"
                   to="/feedback/new"
                 >
                   <Icon icon={MessageSquare} size={16} />
-                  {submissions.length
-                    ? 'Give feedback for another course'
-                    : 'Start feedback'}
+                  Start feedback
                 </Link>
-              ) : (
+              ) : !open ? (
                 <p className="muted">
                   This cycle is closed. Existing submissions are read-only.
                 </p>
-              )}
+              ) : null}
             </div>
           </div>
 
@@ -119,7 +117,7 @@ export default function FeedbackHome() {
               {submissions.map((s) => (
                 <li key={s.id} className="card submission">
                   <div>
-                    <strong>{s.course_title || 'General feedback'}</strong>
+                    <strong>{s.course_title || 'Feedback'}</strong>
                     {s.program && <span className="muted"> · {s.program}</span>}
                     <p className="muted small">
                       Submitted {new Date(s.submitted_at).toLocaleDateString()}

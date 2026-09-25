@@ -131,18 +131,25 @@ export function SentimentPie({ counts, height = 260, onSelect, selected }) {
 }
 
 /** Top mentioned terms as a horizontal bar chart. */
-export function TopTermsChart({ terms, height }) {
+export function TopTermsChart({ terms, height, selected, onSelect }) {
   if (!terms?.length) return null
   const data = terms.map((t) => ({ name: t.term, value: t.count }))
   const h = height ?? Math.max(160, data.length * 32)
   return (
     <ResponsiveContainer width="100%" height={h}>
-      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}
+        onClick={(e) => onSelect?.(e?.activeLabel === selected ? null : e?.activeLabel ?? null)}
+        style={onSelect ? { cursor: 'pointer' } : undefined}
+      >
         <CartesianGrid strokeDasharray="3 3" horizontal={false} />
         <XAxis type="number" allowDecimals={false} />
         <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
         <Tooltip />
-        <Bar dataKey="value" name="Mentions" fill={SERIES[1]} radius={[0, 3, 3, 0]} {...BAR_ANIM} />
+        <Bar dataKey="value" name="Mentions" radius={[0, 3, 3, 0]} {...BAR_ANIM}>
+          {data.map((entry) => (
+            <Cell key={entry.name} fill={selected && entry.name !== selected ? '#555' : SERIES[1]} />
+          ))}
+        </Bar>
       </BarChart>
     </ResponsiveContainer>
   )
