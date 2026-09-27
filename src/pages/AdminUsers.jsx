@@ -14,6 +14,7 @@ import {
 import { SAP_ID_HINT } from '../lib/identifier'
 import {
   createUsers,
+  loadRespondedUserIds,
   loadTempPassword,
   loadUsers,
   NO_DEPARTMENT,
@@ -29,6 +30,13 @@ import {
   describeDepartment,
 } from '../lib/admin/departmentRules'
 import { loadDepartmentTree } from '../lib/admin/departments'
+import { loadActiveCycle } from '../lib/admin/cycles'
+import {
+  FEEDBACK,
+  FEEDBACK_LABELS,
+  feedbackStatus,
+  matchesFeedbackFilter,
+} from '../lib/admin/participationRules'
 
 const EMPTY_TREE = { streams: [], departments: [] }
 
@@ -92,6 +100,7 @@ export default function AdminUsers() {
     view: 'current',
     status: '',
     role: '',
+    feedback: 'all',
     ...FILTER_DEFAULTS,
   })
   const [tree, setTree] = useState(EMPTY_TREE)
@@ -99,6 +108,35 @@ export default function AdminUsers() {
   const [notice, setNotice] = useState(null)
   const [editing, setEditing] = useState(null)
   const [showImport, setShowImport] = useState(false)
+
+  // HOD-only: who in this department has / hasn't given feedback in the active
+  // cycle. Loaded once — this page never creates responses — and gated on `hod`,
+  // so an administrator's list and its queries are completely unchanged.
+  const [activeCycle, setActiveCycle] = useState(null)
+  const [respondedIds, setRespondedIds] = useState(() => new Set())
+  const [feedbackReady, setFeedbackReady] = useState(false)
+
+  useEffect(() => {
+    if (!hod) return undefined
+    let active = true
+    ;(async () => {
+      try {
+        const cycle = await loadActiveCycle()
+        if (!active) return
+        setActiveCycle(cycle)
+        const ids = await loadRespondedUserIds(cycle?.id ?? null)
+        if (active) setRespondedIds(ids)
+      } catch {
+        // Non-fatal: the column reads "—" and the user list still works.
+        if (active) setRespondedIds(new Set())
+      } finally {
+        if (active) setFeedbackReady(true)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [hod])
 
   // Loaded once and shared by the filters, the table, the edit panel and the
   // add-user form. A failure here is swallowed on purpose: before migration 0008
@@ -270,6 +308,18 @@ export default function AdminUsers() {
   const removedView = filters.view === 'removed'
   const population = populationOf(filters)
 
+  // The feedback column and filter are the HOD's chase-list; an admin never sees
+  // them (they read department-wise rates on the Analytics → Participation tab).
+  const hasActiveCycle = Boolean(activeCycle)
+  const showFeedbackCol = hod && !removedView
+  const colCount = 7 + (hasDepartments ? 1 : 0) + (showFeedbackCol ? 1 : 0)
+  const visibleUsers = useMemo(() => {
+    if (!showFeedbackCol || !feedbackReady || filters.feedback === 'all') return users
+    return users.filter((row) =>
+      matchesFeedbackFilter(feedbackStatus(row, respondedIds, { hasActiveCycle }), filters.feedback),
+    )
+  }, [users, showFeedbackCol, feedbackReady, filters.feedback, respondedIds, hasActiveCycle])
+
   return (
     <section>
       <h1>Users</h1>
@@ -365,6 +415,23 @@ export default function AdminUsers() {
             ))}
           </select>
         </div>
+        {hod && (
+          <div>
+            <label htmlFor="filter-feedback">Feedback</label>
+            <select
+              id="filter-feedback"
+              value={filters.feedback}
+              disabled={removedView}
+              onChange={(event) =>
+                setFilters((current) => ({ ...current, feedback: event.target.value }))
+              }
+            >
+              <option value="all">All</option>
+              <option value="pending">Not filled</option>
+              <option value="filled">Filled</option>
+            </select>
+          </div>
+        )}
         {hasDepartments && !hod && (
           <>
             <div>
@@ -443,15 +510,30 @@ export default function AdminUsers() {
         </div>
       </div>
 
+      {hod && !removedView && (
+        <p className="muted small">
+          {activeCycle ? (
+            <>
+              Feedback status is for the active cycle <strong>{activeCycle.label}</strong>.
+              “Not filled” means no submission yet — filter to it to see who to remind.
+            </>
+          ) : feedbackReady ? (
+            'No active cycle is open, so feedback status isn’t available yet.'
+          ) : (
+            'Loading feedback status…'
+          )}
+        </p>
+      )}
+
       {loading ? (
         <p className="muted">Loading users...</p>
-      ) : users.length === 0 ? (
+      ) : visibleUsers.length === 0 ? (
         <p className="muted">No users match these filters.</p>
       ) : (
         <>
           <p className="muted">
-            {users.length} {removedView ? 'removed ' : ''}user
-            {users.length === 1 ? '' : 's'}
+            {visibleUsers.length} {removedView ? 'removed ' : ''}user
+            {visibleUsers.length === 1 ? '' : 's'}
           </p>
           <div className="table-wrap">
             <table className="data-table">
@@ -463,6 +545,7 @@ export default function AdminUsers() {
                   <th scope="col">Role</th>
                   {hasDepartments && <th scope="col">Department</th>}
                   <th scope="col">Status</th>
+                  {showFeedbackCol && <th scope="col">Feedback</th>}
                   <th scope="col">{removedView ? 'Removed' : 'Added'}</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
@@ -470,7 +553,7 @@ export default function AdminUsers() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((user) => (
+                {visibleUsers.map((user) => (
                   <Fragment key={user.id}>
                   <tr
                     className={`${removedView || user.status === 'inactive' ? 'row-muted' : ''}${editing?.id === user.id ? ' row-highlight' : ''}`}
@@ -502,6 +585,16 @@ export default function AdminUsers() {
                         </>
                       )}
                     </td>
+                    {showFeedbackCol && (
+                      <td>
+                        <FeedbackCell
+                          user={user}
+                          respondedIds={respondedIds}
+                          hasActiveCycle={hasActiveCycle}
+                          ready={feedbackReady}
+                        />
+                      </td>
+                    )}
                     <td className="muted small">
                       {formatDate(removedView ? user.removed_at : user.created_at)}
                     </td>
@@ -558,7 +651,7 @@ export default function AdminUsers() {
                   </tr>
                   {editing?.id === user.id && !removedView && (
                     <tr className="inline-edit-row">
-                      <td colSpan={hasDepartments ? 8 : 7}>
+                      <td colSpan={colCount}>
                         <div className="inline-edit">
                           <h3>Edit {editing.email}</h3>
                           <form onSubmit={handleSaveEdit}>
@@ -784,6 +877,15 @@ function TempPassword({ userId }) {
       <Icon icon={Eye} size={12} /> {status === 'loading' ? 'Loading…' : 'Show password'}
     </button>
   )
+}
+
+function FeedbackCell({ user, respondedIds, hasActiveCycle, ready }) {
+  if (!ready) return <span className="muted small">…</span>
+  const status = feedbackStatus(user, respondedIds, { hasActiveCycle })
+  if (status === FEEDBACK.NA || status === FEEDBACK.UNKNOWN) {
+    return <span className="muted">—</span>
+  }
+  return <span className={`pill ${status}`}>{FEEDBACK_LABELS[status]}</span>
 }
 
 function DepartmentCell({ department, streamById }) {

@@ -1396,6 +1396,20 @@ li.submission .button-row {
   color: var(--error);
 }
 
+/* HOD feedback column: green when a respondent has submitted this cycle, red when
+   they still owe it — the "who to remind" signal. */
+.pill.filled {
+  border-color: var(--ok);
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+
+.pill.pending {
+  border-color: var(--error);
+  background: var(--error-bg);
+  color: var(--error);
+}
+
 .pill.state-scheduled {
   border-color: var(--accent);
   background: var(--accent-subtle);

@@ -18,6 +18,22 @@ export async function loadCycles() {
   return data ?? []
 }
 
+/**
+ * The single open/active cycle, or null when none is active. Any signed-in user
+ * may read cycles (cycles_read_all in 0002_rls.sql), and a partial unique index
+ * guarantees at most one is active — so `maybeSingle` is safe.
+ */
+export async function loadActiveCycle() {
+  const { data, error } = await supabase
+    .from('academic_cycles')
+    .select('id, label, opens_at, closes_at')
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message)
+  return data ?? null
+}
+
 /** Response counts per cycle, so an admin can see what a change would affect. */
 export async function loadCycleCounts() {
   const { data, error } = await supabase.rpc('count_responses_per_cycle')
