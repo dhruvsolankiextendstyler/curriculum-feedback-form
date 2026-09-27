@@ -9,6 +9,7 @@ import {
   ASSIGNABLE_ROLES,
   HOD_CREATABLE_ROLES,
   isHod,
+  RESPONDENT_ROLES,
   ROLE_LABELS,
 } from '../lib/constants'
 import { SAP_ID_HINT } from '../lib/identifier'
@@ -162,6 +163,11 @@ export default function AdminUsers() {
   const hasDepartments = tree.streams.length > 0
   const ownDepartment = hod ? (departmentById.get(profile?.department_id) ?? null) : null
   const roleOptions = hod ? HOD_CREATABLE_ROLES : ASSIGNABLE_ROLES
+  // The HOD list can hold any role assigned to their department — employers, alumni
+  // and academic peers may optionally belong to one (FR-46) — so the filter offers
+  // every respondent role. Creating/editing a role stays restricted to roleOptions
+  // (FR-51: an HOD may only assign Student or Faculty).
+  const roleFilterOptions = hod ? RESPONDENT_ROLES : ASSIGNABLE_ROLES
 
   /** A stream filter is the set of its departments; null means "no stream chosen". */
   const departmentIdsForStream = useMemo(
@@ -411,7 +417,7 @@ export default function AdminUsers() {
             }}
           >
             <option value="">All roles</option>
-            {roleOptions.map((role) => (
+            {roleFilterOptions.map((role) => (
               <option key={role} value={role}>
                 {ROLE_LABELS[role]}
               </option>

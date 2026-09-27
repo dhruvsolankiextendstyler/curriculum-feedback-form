@@ -1388,6 +1388,7 @@ li.submission .button-row {
   font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.5;
+  white-space: nowrap;
 }
 
 .pill.active,
