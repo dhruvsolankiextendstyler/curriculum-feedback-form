@@ -11,12 +11,24 @@ import {
   deleteDepartment,
   deleteStream,
   describeDepartment,
+  loadDepartmentQuestionsByRole,
   loadDepartmentTree,
   loadDepartmentUsage,
   sortDepartmentRows,
   updateDepartment,
   updateStream,
 } from '../lib/admin/departments'
+import { ROLE_LABELS } from '../lib/constants'
+
+// Per-role question columns for the department table. Short headers keep the
+// table from ballooning; the full role name rides along as an <abbr> tooltip.
+const ROLE_COLUMNS = [
+  { role: 'student', short: 'S' },
+  { role: 'academic_peer', short: 'AP' },
+  { role: 'employer', short: 'E' },
+  { role: 'alumni', short: 'A' },
+  { role: 'faculty', short: 'F' },
+]
 
 /**
  * Streams and departments (FR-44 to FR-48).
@@ -35,7 +47,7 @@ import {
 export default function AdminDepartments() {
   const confirm = useConfirm()
   const toast = useToast()
-  const [data, setData] = useState({ streams: [], departments: [], usage: {} })
+  const [data, setData] = useState({ streams: [], departments: [], usage: {}, questionsByRole: {} })
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState(null)
   const [pick, setPick] = useState({ streamId: '', departmentId: '' })
@@ -53,8 +65,12 @@ export default function AdminDepartments() {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [tree, usage] = await Promise.all([loadDepartmentTree(), loadDepartmentUsage()])
-      setData({ ...tree, usage })
+      const [tree, usage, questionsByRole] = await Promise.all([
+        loadDepartmentTree(),
+        loadDepartmentUsage(),
+        loadDepartmentQuestionsByRole(),
+      ])
+      setData({ ...tree, usage, questionsByRole })
       return tree
     } catch (err) {
       toast.error(err.message)
@@ -107,6 +123,7 @@ export default function AdminDepartments() {
       removed_user_count: data.usage[row.id]?.removedUsers ?? 0,
       response_count: data.usage[row.id]?.responses ?? 0,
       question_count: data.usage[row.id]?.questions ?? 0,
+      question_by_role: data.questionsByRole[row.id] ?? {},
     }))
 
     const kept = decorated.filter((row) => {
@@ -121,7 +138,7 @@ export default function AdminDepartments() {
     })
 
     return sortDepartmentRows(kept, filters.sort)
-  }, [data.departments, data.usage, streamById, filters])
+  }, [data.departments, data.usage, data.questionsByRole, streamById, filters])
 
   /** Runs a write, reports it, and reloads. Mirrors AdminCycles' `act`. */
   const act = useCallback(
@@ -637,9 +654,16 @@ export default function AdminDepartments() {
                   <th scope="col">Stream</th>
                   <th scope="col">Users</th>
                   <th scope="col">Responses</th>
-                  {/* Its own column because it is a delete blocker in its own
-                      right, and the only one an admin cannot clear. */}
-                  <th scope="col">Questions</th>
+                  {/* One column per role instead of a single all-roles total,
+                      which carried no insight. The total still backs the
+                      delete-blocker checks (data.usage[id].questions). */}
+                  {ROLE_COLUMNS.map((c) => (
+                    <th key={c.role} scope="col" className="q-role-col">
+                      <abbr title={`${ROLE_LABELS[c.role] ?? c.role} — live questions`}>
+                        {c.short}
+                      </abbr>
+                    </th>
+                  ))}
                   <th scope="col">Status</th>
                   <th scope="col">
                     <span className="sr-only">Actions</span>
@@ -662,7 +686,11 @@ export default function AdminDepartments() {
                       )}
                     </td>
                     <td>{row.response_count}</td>
-                    <td>{row.question_count}</td>
+                    {ROLE_COLUMNS.map((c) => (
+                      <td key={c.role} className="q-role-col">
+                        {row.question_by_role[c.role] ?? 0}
+                      </td>
+                    ))}
                     <td>
                       <span className={`pill ${row.is_active ? 'active' : 'inactive'}`}>
                         {row.is_active ? 'active' : 'archived'}
@@ -697,7 +725,7 @@ export default function AdminDepartments() {
                   </tr>
                   {editing?.kind === 'department' && editing.origin === 'table' && editing.row.id === row.id && (
                     <tr className="inline-edit-row">
-                      <td colSpan={8}>
+                      <td colSpan={7 + ROLE_COLUMNS.length}>
                         <div className="inline-edit">{departmentEditor}</div>
                       </td>
                     </tr>
@@ -708,10 +736,12 @@ export default function AdminDepartments() {
             </table>
           </div>
           <p className="muted small">
-            Archiving takes a department out of the pickers and the add-user form
+            The S / AP / E / A / F columns count live questions on each role's form
+            (Student, Academic Peer, Employer, Alumni, Faculty). Archiving takes a
+            department out of the pickers and the add-user form
             without touching the accounts already in it. Deleting removes the row, and
             the database refuses that while any account, response or question still
-            references it — the three counts above are what to check first. A
+            references it — the counts above are what to check first. A
             department that has ever had its own question can only be archived:
             removing a question from a form keeps its history, and so keeps the
             reference.

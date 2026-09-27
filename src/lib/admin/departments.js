@@ -95,6 +95,40 @@ export async function loadDepartmentUsage() {
   return usage
 }
 
+/**
+ * Active question counts per (department, respondent role), tallied client-side.
+ *
+ * The single "Questions" total from count_department_usage folds all five role
+ * forms into one number, which carries no insight. This splits it so the table
+ * can show how many LIVE questions each role's form holds for a department. Only
+ * active questions — this is a "what is on the form now" view, not the
+ * delete-blocker count (which still comes from loadDepartmentUsage).
+ *
+ * @returns {Promise<Record<string, Record<string, number>>>} deptId -> role -> count
+ */
+export async function loadDepartmentQuestionsByRole() {
+  const { data, error } = await supabase
+    .from('questions')
+    .select('department_id, forms!inner ( stakeholder_type )')
+    .eq('is_active', true)
+    .not('department_id', 'is', null)
+
+  if (error) {
+    if (isMissingDepartmentColumn(error.message)) return {}
+    throw new Error(translateDepartmentError(error))
+  }
+
+  const counts = {}
+  for (const row of data ?? []) {
+    const form = Array.isArray(row.forms) ? row.forms[0] : row.forms
+    const role = form?.stakeholder_type
+    if (!row.department_id || !role) continue
+    if (!counts[row.department_id]) counts[row.department_id] = {}
+    counts[row.department_id][role] = (counts[row.department_id][role] ?? 0) + 1
+  }
+  return counts
+}
+
 // ---------- streams ----------
 
 /**

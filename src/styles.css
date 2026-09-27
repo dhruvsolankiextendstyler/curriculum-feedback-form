@@ -1318,6 +1318,21 @@ li.submission .button-row {
   border-bottom: none;
 }
 
+/* Per-role question columns: narrow, centred, with a dotted-underline hint on
+   the abbreviated role headings. */
+.data-table th.q-role-col,
+.data-table td.q-role-col {
+  text-align: center;
+  width: 2.75rem;
+  white-space: nowrap;
+}
+
+.data-table th.q-role-col abbr[title] {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
 .data-table tbody tr {
   transition: background 0.1s;
 }

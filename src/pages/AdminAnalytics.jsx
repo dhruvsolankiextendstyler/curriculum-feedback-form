@@ -352,7 +352,16 @@ function DetailCard({ children, onClose }) {
 /** FR-35. */
 function OverviewTab({ filters, setFilters, selectCycle }) {
   const state = useAnalytics(loadTotals, filters)
+  const participation = useAnalytics(loadParticipation, filters)
   const [detail, setDetail] = useState(null)
+
+  // "Total users" = provisioned (active) accounts in scope, summed from the same
+  // source the Participation tab uses so the two reconcile. Now that a person
+  // fills one form, a distinct-respondent count would just echo Responses.
+  const totalUsers = useMemo(
+    () => (participation.data ?? []).reduce((sum, r) => sum + Number(r.provisioned), 0),
+    [participation.data],
+  )
 
   return (
     <Panel state={state}>
@@ -385,8 +394,8 @@ function OverviewTab({ filters, setFilters, selectCycle }) {
                 <span className="stat-label">Responses</span>
               </div>
               <div className="stat">
-                <span className="stat-value">{totals.respondentCount}</span>
-                <span className="stat-label">People</span>
+                <span className="stat-value">{participation.loading ? '—' : totalUsers}</span>
+                <span className="stat-label">Total users</span>
               </div>
               <div className="stat">
                 <span className="stat-value">{totals.answerCount}</span>
@@ -559,7 +568,7 @@ function ParticipationTab({ filters }) {
   const [selectedDept, setSelectedDept] = useState(null)
 
   return (
-    <Panel state={state} empty="No provisioned users found.">
+    <Panel state={state} empty="No users found.">
       {(rows) => {
         const totalProvisioned = rows.reduce((s, r) => s + Number(r.provisioned), 0)
         const totalResponded = rows.reduce((s, r) => s + Number(r.responded), 0)
@@ -603,7 +612,7 @@ function ParticipationTab({ filters }) {
             <div className="stat-grid">
               <div className="stat">
                 <span className="stat-value">{totalProvisioned}</span>
-                <span className="stat-label">Provisioned</span>
+                <span className="stat-label">Total users</span>
               </div>
               <div className="stat">
                 <span className="stat-value">{totalResponded}</span>
@@ -630,7 +639,7 @@ function ParticipationTab({ filters }) {
                     {stDetail.departments.length > 0 && (
                       <div className="table-wrap" style={{ marginTop: 8 }}>
                         <table className="data-table">
-                          <thead><tr><th>Department</th><th>Provisioned</th><th>Responded</th><th>Rate</th></tr></thead>
+                          <thead><tr><th>Department</th><th>Users</th><th>Responded</th><th>Rate</th></tr></thead>
                           <tbody>
                             {stDetail.departments.sort((a, b) => b.responded - a.responded).map((d) => (
                               <tr key={d.name}>
@@ -665,7 +674,7 @@ function ParticipationTab({ filters }) {
                     {deptDetail.stakeholders.length > 0 && (
                       <div className="table-wrap" style={{ marginTop: 8 }}>
                         <table className="data-table">
-                          <thead><tr><th>Stakeholder</th><th>Provisioned</th><th>Responded</th><th>Rate</th></tr></thead>
+                          <thead><tr><th>Stakeholder</th><th>Users</th><th>Responded</th><th>Rate</th></tr></thead>
                           <tbody>
                             {deptDetail.stakeholders.sort((a, b) => b.responded - a.responded).map((s) => (
                               <tr key={s.name}>
@@ -686,7 +695,7 @@ function ParticipationTab({ filters }) {
             )}
 
             <p className="muted small">
-              &ldquo;Provisioned&rdquo; counts active user accounts.
+              &ldquo;Total users&rdquo; counts active user accounts.
               &ldquo;Responded&rdquo; counts those who submitted at least one
               response{filters.cycleId ? ' in the selected academic year' : ''}.
               Users without a department are excluded from the department chart.
