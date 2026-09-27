@@ -118,7 +118,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
     .filter(({ row }) => row.some((cell) => String(cell ?? '').trim() !== ''))
 
   if (nonEmpty.length === 0) {
-    return { valid: [], invalid: [], headerError: 'The file is empty.', ignoredColumns: [] }
+    return { valid: [], invalid: [], updates: [], headerError: 'The file is empty.', ignoredColumns: [] }
   }
 
   const columns = mapHeaders(nonEmpty[0].row)
@@ -126,6 +126,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
     return {
       valid: [],
       invalid: [],
+      updates: [],
       headerError:
         'No "email" column found. Expected headers: email, full_name, role, sap_id (optional), temporary_password (optional).',
       ignoredColumns: [],
@@ -135,13 +136,15 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
     return {
       valid: [],
       invalid: [],
+      updates: [],
       headerError:
         'No "role" column found. Expected headers: email, full_name, role, sap_id (optional), temporary_password (optional).',
       ignoredColumns: [],
     }
   }
 
-  const { emails: existingEmails, sapIds: existingSapIds } = splitExisting(existing)
+  const { emails: existingEmails, sapIds: existingSapIds, profilesByEmail } =
+    splitExisting(existing)
   const taken = new Set(existingEmails.map((e) => e.toLowerCase()))
   const takenSapIds = new Set(existingSapIds.map((id) => String(id).toUpperCase()))
   const streams = tree?.streams ?? []
@@ -159,6 +162,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
   const seenSapIds = new Set()
   const valid = []
   const invalid = []
+  const updates = []
 
   nonEmpty.slice(1).forEach(({ row, line: lineNo }) => {
     const email = String(row[columns.email] ?? '').trim().toLowerCase()
@@ -241,7 +245,64 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
       return
     }
     if (taken.has(email)) {
-      invalid.push({ line: lineNo, email, reason: 'Already registered.' })
+      seen.add(email)
+
+      const profile = profilesByEmail.get(email)
+      if (!profile) {
+        invalid.push({ line: lineNo, email, reason: 'Already registered.' })
+        return
+      }
+
+      const changes = []
+      if (role !== profile.role) {
+        changes.push({ field: 'role', from: profile.role, to: role })
+      }
+      if (fullName && fullName !== (profile.full_name || '')) {
+        changes.push({ field: 'full_name', from: profile.full_name || '', to: fullName })
+      }
+      const normSapId = sapId ? sapId.toUpperCase() : null
+      const normExistingSap = profile.sap_id ? profile.sap_id.toUpperCase() : null
+      if (normSapId && normSapId !== normExistingSap) {
+        if (seenSapIds.has(normSapId)) {
+          invalid.push({ line: lineNo, email, reason: `SAP ID ${sapId} appears twice in this file.` })
+          return
+        }
+        if (takenSapIds.has(normSapId)) {
+          invalid.push({ line: lineNo, email, reason: `SAP ID ${sapId} is already assigned to another user.` })
+          return
+        }
+        changes.push({ field: 'sap_id', from: profile.sap_id || '', to: sapId })
+      }
+      if (departmentId && departmentId !== (profile.department_id ?? null)) {
+        changes.push({ field: 'department_id', from: profile.department_id, to: departmentId })
+      }
+
+      if (changes.length === 0) {
+        invalid.push({ line: lineNo, email, reason: 'Already registered, no changes.' })
+        return
+      }
+
+      if (departmentRequiredFor(role) && !departmentId && !profile.department_id) {
+        invalid.push({
+          line: lineNo,
+          email,
+          reason: `Changing to ${ROLE_LABELS[role] ?? role} requires a department.`,
+        })
+        return
+      }
+
+      if (normSapId) seenSapIds.add(normSapId)
+      updates.push({
+        line: lineNo,
+        email,
+        userId: profile.id,
+        full_name: fullName,
+        sap_id: sapId ?? '',
+        role,
+        department_id: departmentId,
+        currentDepartmentId: profile.department_id,
+        changes,
+      })
       return
     }
     if (sapId && seenSapIds.has(sapId)) {
@@ -274,7 +335,7 @@ export function validateCsvRows(rows, existing = {}, tree = null) {
     })
   })
 
-  return { valid, invalid, headerError: null, ignoredColumns }
+  return { valid, invalid, updates, headerError: null, ignoredColumns }
 }
 
 /**
@@ -323,8 +384,12 @@ function checkDepartmentCell(cells, role, { streams, departments }) {
 
 const splitExisting = (existing) =>
   Array.isArray(existing)
-    ? { emails: existing, sapIds: [] }
-    : { emails: existing?.emails ?? [], sapIds: existing?.sapIds ?? [] }
+    ? { emails: existing, sapIds: [], profilesByEmail: new Map() }
+    : {
+        emails: existing?.emails ?? [],
+        sapIds: existing?.sapIds ?? [],
+        profilesByEmail: existing?.profilesByEmail ?? new Map(),
+      }
 
 /**
  * Splits an account list into bounded Edge Function requests.

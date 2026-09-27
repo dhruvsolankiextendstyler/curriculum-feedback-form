@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Download, FileSpreadsheet, FilterX, Plus, UserPlus, Users } from 'lucide'
+import { Download, FileSpreadsheet, FilterX, Plus, RefreshCw, UserPlus, Users } from 'lucide'
 import Icon from '../Icon'
 import Papa from 'papaparse'
 import { useAuth } from '../../context/AuthContext'
@@ -13,10 +13,19 @@ import {
 } from '../../lib/constants'
 import { SAP_ID_HINT, validateSapId } from '../../lib/identifier'
 import { CSV_TEMPLATE, validateCsvRows } from '../../lib/admin/csv'
-import { loadExistingIdentifiers } from '../../lib/admin/users'
+import { loadExistingIdentifiers, updateUser } from '../../lib/admin/users'
 import { departmentRequiredFor, describeDepartment } from '../../lib/admin/departmentRules'
 
 const EMPTY_TREE = { streams: [], departments: [] }
+
+const CHANGE_LABELS = { role: 'Role', full_name: 'Name', sap_id: 'SAP ID', department_id: 'Dept' }
+
+function formatChangeValue(field, value, deptName) {
+  if (!value) return '(none)'
+  if (field === 'role') return ROLE_LABELS[value] ?? value
+  if (field === 'department_id') return deptName?.(value) || value
+  return value
+}
 
 /**
  * Adds one user or a validated CSV batch without sending email invitations.
@@ -354,6 +363,7 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
   const [preview, setPreview] = useState(null)
   const [credentials, setCredentials] = useState([])
   const [busy, setBusy] = useState(false)
+  const [updating, setUpdating] = useState(false)
   const [progress, setProgress] = useState(null)
 
   const departmentName = useMemo(() => {
@@ -447,14 +457,87 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
         )
       }
 
-      setPreview(null)
-      if (fileRef.current) fileRef.current.value = ''
+      if (preview.updates?.length) {
+        setPreview((prev) => (prev ? { ...prev, valid: [] } : null))
+      } else {
+        setPreview(null)
+        if (fileRef.current) fileRef.current.value = ''
+      }
     } catch (err) {
       onError(err.message)
     } finally {
       setBusy(false)
       setProgress(null)
     }
+  }
+
+  async function handleUpdateOne(row, index) {
+    setUpdating(true)
+    try {
+      const patch = {}
+      for (const c of row.changes) patch[c.field] = c.to
+      await updateUser(row.userId, patch, {
+        asHod: scope.hod,
+        departments: tree.departments,
+        streams: tree.streams,
+        currentDepartmentId: row.currentDepartmentId,
+      })
+      setPreview((prev) => {
+        if (!prev) return null
+        const remaining = prev.updates.filter((_, i) => i !== index)
+        if (!remaining.length && !prev.valid.length) return null
+        return { ...prev, updates: remaining }
+      })
+      onDone(`${row.email} updated.`)
+    } catch (err) {
+      onError(`${row.email}: ${err.message}`)
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  async function handleUpdateAll() {
+    if (!preview?.updates?.length) return
+    setUpdating(true)
+    setProgress({ done: 0, total: preview.updates.length })
+
+    let updated = 0
+    let failed = 0
+    const errors = []
+
+    for (let i = 0; i < preview.updates.length; i++) {
+      const row = preview.updates[i]
+      try {
+        const patch = {}
+        for (const c of row.changes) patch[c.field] = c.to
+        await updateUser(row.userId, patch, {
+          asHod: scope.hod,
+          departments: tree.departments,
+          streams: tree.streams,
+          currentDepartmentId: row.currentDepartmentId,
+        })
+        updated++
+      } catch (err) {
+        failed++
+        if (errors.length < 5) errors.push(`${row.email}: ${err.message}`)
+      }
+      setProgress({ done: i + 1, total: preview.updates.length })
+    }
+
+    const parts = []
+    if (updated) parts.push(`${updated} updated`)
+    if (failed) parts.push(`${failed} failed`)
+    onDone(`${parts.join(', ')}.`)
+    if (errors.length) onError(errors.join('; '))
+
+    if (preview.valid?.length) {
+      setPreview((prev) => (prev ? { ...prev, updates: [] } : null))
+    } else {
+      setPreview(null)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+    setUpdating(false)
+    setProgress(null)
   }
 
   function downloadTemplate() {
@@ -524,8 +607,11 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
       {preview && (
         <div className="preview">
           <h3>
-            {preview.valid.length} ready to add
-            {preview.invalid.length > 0 && `, ${preview.invalid.length} skipped`}
+            {[
+              preview.valid.length > 0 && `${preview.valid.length} ready to add`,
+              preview.updates?.length > 0 && `${preview.updates.length} to update`,
+              preview.invalid.length > 0 && `${preview.invalid.length} skipped`,
+            ].filter(Boolean).join(', ')}
           </h3>
 
           {preview.ignoredColumns?.length > 0 && (
@@ -568,21 +654,71 @@ function CsvUsers({ create, onDone, onError, tree, scope }) {
             </details>
           )}
 
+          {preview.updates?.length > 0 && (
+            <details open>
+              <summary>
+                {preview.updates.length} existing user{preview.updates.length === 1 ? '' : 's'} to update
+              </summary>
+              <ul className="issue-list">
+                {preview.updates.slice(0, 30).map((row, index) => (
+                  <li key={row.email}>
+                    <strong>{row.email}</strong>:{' '}
+                    {row.changes.map((c, j) => (
+                      <span key={c.field}>
+                        {j > 0 ? ', ' : ''}
+                        {CHANGE_LABELS[c.field] ?? c.field}:{' '}
+                        {formatChangeValue(c.field, c.from, departmentName)} →{' '}
+                        {formatChangeValue(c.field, c.to, departmentName)}
+                      </span>
+                    ))}
+                    {' '}
+                    <button
+                      type="button"
+                      className="secondary"
+                      style={{ padding: '2px 8px', fontSize: '0.8em' }}
+                      disabled={busy || updating}
+                      onClick={() => handleUpdateOne(row, index)}
+                    >
+                      Update
+                    </button>
+                  </li>
+                ))}
+                {preview.updates.length > 30 && (
+                  <li className="muted">and {preview.updates.length - 30} more</li>
+                )}
+              </ul>
+            </details>
+          )}
+
           <div className="button-row">
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={busy || !preview.valid.length}
-            >
-              <Icon icon={Users} size={16} />
-              {busy
-                ? `Adding... ${progress?.done ?? 0}/${progress?.total ?? 0}`
-                : `Add ${preview.valid.length} user${preview.valid.length === 1 ? '' : 's'}`}
-            </button>
+            {preview.valid.length > 0 && (
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={busy || updating}
+              >
+                <Icon icon={Users} size={16} />
+                {busy
+                  ? `Adding... ${progress?.done ?? 0}/${progress?.total ?? 0}`
+                  : `Add ${preview.valid.length} user${preview.valid.length === 1 ? '' : 's'}`}
+              </button>
+            )}
+            {preview.updates?.length > 0 && (
+              <button
+                type="button"
+                onClick={handleUpdateAll}
+                disabled={busy || updating}
+              >
+                <Icon icon={RefreshCw} size={16} />
+                {updating
+                  ? `Updating... ${progress?.done ?? 0}/${progress?.total ?? 0}`
+                  : `Update ${preview.updates.length} user${preview.updates.length === 1 ? '' : 's'}`}
+              </button>
+            )}
             <button
               type="button"
               className="secondary"
-              disabled={busy}
+              disabled={busy || updating}
               onClick={() => {
                 setPreview(null)
                 if (fileRef.current) fileRef.current.value = ''

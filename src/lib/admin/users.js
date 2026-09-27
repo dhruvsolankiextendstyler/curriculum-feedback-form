@@ -128,20 +128,27 @@ function buildUserQuery(
  */
 const likeValue = (term) => `"%${term.replace(/[\\"]/g, (char) => `\\${char}`)}%"`
 
-/** Both identifiers a CSV row could collide with, in one round trip. */
+/** Identifiers + full profiles for CSV collision detection and update diffs. */
 export async function loadExistingIdentifiers() {
-  const { data, error } = await supabase.from('profiles').select('email, sap_id')
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, sap_id, role, department_id')
 
   if (error) {
     if (!isMissingProfileColumn(error.message)) throw new Error(error.message)
     const legacy = await supabase.from('profiles').select('email')
     if (legacy.error) throw new Error(legacy.error.message)
-    return { emails: emailsOf(legacy.data), sapIds: [] }
+    return { emails: emailsOf(legacy.data), sapIds: [], profilesByEmail: new Map() }
   }
 
+  const rows = data ?? []
+  const profilesByEmail = new Map()
+  for (const row of rows) profilesByEmail.set(row.email.toLowerCase(), row)
+
   return {
-    emails: emailsOf(data),
-    sapIds: (data ?? []).map((row) => row.sap_id).filter(Boolean),
+    emails: emailsOf(rows),
+    sapIds: rows.map((row) => row.sap_id).filter(Boolean),
+    profilesByEmail,
   }
 }
 
