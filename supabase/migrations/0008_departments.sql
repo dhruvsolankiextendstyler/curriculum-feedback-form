@@ -628,7 +628,7 @@ begin
       p_cycle_id, p_stakeholder, p_program, p_course_key, p_stream_id, p_department_id) as id
   ),
   ans as (
-    select a.value_text as vt, qv.scale_id as s_id, q.form_id as f_id,
+    select a.value_numeric as vn, qv.scale_id as s_id, q.form_id as f_id,
            q.question_key as q_key, f.stakeholder_type as st
     from answers a
     join scoped s on s.id = a.response_id
@@ -638,7 +638,7 @@ begin
     where qv.type = 'rating'
   ),
   counted as (
-    select ans.st, ans.f_id, ans.q_key, ans.s_id, ans.vt, count(*) as c_n from ans group by 1,2,3,4,5
+    select ans.st, ans.f_id, ans.q_key, ans.s_id, ans.vn, count(*) as c_n from ans group by 1,2,3,4,5
   ),
   totals as (
     select ans.st, ans.f_id, ans.q_key, ans.s_id, count(*) as t_n from ans group by 1,2,3,4
@@ -653,7 +653,7 @@ begin
   from axis
   join totals t on t.st = axis.st and t.f_id = axis.f_id and t.q_key = axis.q_key and t.s_id = axis.s_id
   left join counted c on c.st = axis.st and c.f_id = axis.f_id and c.q_key = axis.q_key
-                     and c.s_id = axis.s_id and c.vt = axis.lbl
+                     and c.s_id = axis.s_id and c.vn = axis.osc
   order by axis.st, axis.q_key, axis.ord;
 end;
 $$;
