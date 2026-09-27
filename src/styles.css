@@ -271,6 +271,19 @@ button.icon-only {
   flex-shrink: 0;
 }
 
+/* The HOD's department, shown beside the role chip so the Users list can drop its
+   single-valued Department column. Outlined, so it reads as secondary to the role. */
+.dept-chip {
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 @media (max-width: 480px) {
   .topbar {
     gap: 6px;

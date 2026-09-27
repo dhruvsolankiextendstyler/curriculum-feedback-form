@@ -311,8 +311,11 @@ export default function AdminUsers() {
   // The feedback column and filter are the HOD's chase-list; an admin never sees
   // them (they read department-wise rates on the Analytics → Participation tab).
   const hasActiveCycle = Boolean(activeCycle)
+  // An HOD administers a single department, so that column is dead weight — drop it
+  // to make room for Feedback, and show the department name in the top bar instead.
+  const showDeptCol = hasDepartments && !hod
   const showFeedbackCol = hod && !removedView
-  const colCount = 7 + (hasDepartments ? 1 : 0) + (showFeedbackCol ? 1 : 0)
+  const colCount = 7 + (showDeptCol ? 1 : 0) + (showFeedbackCol ? 1 : 0)
   const visibleUsers = useMemo(() => {
     if (!showFeedbackCol || !feedbackReady || filters.feedback === 'all') return users
     return users.filter((row) =>
@@ -543,7 +546,7 @@ export default function AdminUsers() {
                   <th scope="col">Email</th>
                   <th scope="col">SAP ID</th>
                   <th scope="col">Role</th>
-                  {hasDepartments && <th scope="col">Department</th>}
+                  {showDeptCol && <th scope="col">Department</th>}
                   <th scope="col">Status</th>
                   {showFeedbackCol && <th scope="col">Feedback</th>}
                   <th scope="col">{removedView ? 'Removed' : 'Added'}</th>
@@ -562,7 +565,7 @@ export default function AdminUsers() {
                     <td>{user.email}</td>
                     <td>{user.sap_id || <span className="muted">-</span>}</td>
                     <td>{ROLE_LABELS[user.role] ?? user.role}</td>
-                    {hasDepartments && (
+                    {showDeptCol && (
                       <td>
                         <DepartmentCell
                           department={departmentById.get(user.department_id)}

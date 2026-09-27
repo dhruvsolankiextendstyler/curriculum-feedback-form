@@ -1,6 +1,8 @@
 import { supabase } from '../supabase'
+import { cached } from '../cache'
 import {
   CODE_HINT,
+  describeDepartment,
   validateDepartmentDraft,
   validateStreamDraft,
 } from './departmentRules'
@@ -58,6 +60,26 @@ export async function loadDepartmentTree() {
   const [streams, departments] = await Promise.all([loadStreams(), loadDepartments()])
   return { streams, departments }
 }
+
+/**
+ * The display label for one department, cached because the top-bar HOD chip asks
+ * for it on every admin page mount and a department name rarely changes. Returns
+ * null when there is none (or the departments migration is not applied yet), so
+ * the chip simply does not render.
+ */
+export const loadDepartmentLabel = cached(async (departmentId) => {
+  if (!departmentId) return null
+  const { data, error } = await supabase
+    .from('departments')
+    .select('name, code')
+    .eq('id', departmentId)
+    .maybeSingle()
+  if (error) {
+    if (isMissingDepartmentColumn(error.message)) return null
+    throw new Error(translateDepartmentError(error))
+  }
+  return data ? describeDepartment(data) : null
+}, 300_000)
 
 /**
  * Per-department reference counts, tallied client-side the way loadCycleCounts
