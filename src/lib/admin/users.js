@@ -128,6 +128,26 @@ function buildUserQuery(
  */
 const likeValue = (term) => `"%${term.replace(/[\\"]/g, (char) => `\\${char}`)}%"`
 
+/**
+ * The ids of everyone who has submitted at least one response in a cycle.
+ *
+ * Used by the HOD user list to mark who has and hasn't given feedback yet. For an
+ * HOD the `responses_hod_read` policy (0011_hod_scope.sql) already narrows this to
+ * their own department, so the caller neither sees nor filters by other departments.
+ * Only `user_id` is selected — a few thousand ids at the 100–500 user target — and
+ * deduplicated into a Set the page can test membership against per row.
+ */
+export async function loadRespondedUserIds(cycleId) {
+  if (!cycleId) return new Set()
+  const { data, error } = await supabase
+    .from('responses')
+    .select('user_id')
+    .eq('cycle_id', cycleId)
+
+  if (error) throw new Error(error.message)
+  return new Set((data ?? []).map((row) => row.user_id))
+}
+
 /** Identifiers + full profiles for CSV collision detection and update diffs. */
 export async function loadExistingIdentifiers() {
   const { data, error } = await supabase

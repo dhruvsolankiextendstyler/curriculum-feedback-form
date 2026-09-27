@@ -3,7 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { LogOut, Menu } from 'lucide'
 import { useAuth } from '../context/AuthContext'
 import { useConfirm } from '../context/ConfirmContext'
-import { ROLE_LABELS, isStaff } from '../lib/constants'
+import { ROLE_LABELS, isHod, isStaff } from '../lib/constants'
+import { loadDepartmentLabel } from '../lib/admin/departments'
 import AdminNav from './AdminNav'
 import Icon from './Icon'
 import ThemeToggle from './ThemeToggle'
@@ -14,6 +15,24 @@ export default function Layout({ children }) {
   const location = useLocation()
   const confirm = useConfirm()
   const [navOpen, setNavOpen] = useState(false)
+  const [deptLabel, setDeptLabel] = useState(null)
+
+  // An HOD administers one department; naming it in the top bar is what lets the
+  // Users list drop its (single-valued) Department column. Cached, so moving
+  // between admin pages doesn't refetch it.
+  useEffect(() => {
+    if (!isHod(role) || !profile?.department_id) {
+      setDeptLabel(null)
+      return undefined
+    }
+    let active = true
+    loadDepartmentLabel(profile.department_id)
+      .then((label) => active && setDeptLabel(label))
+      .catch(() => active && setDeptLabel(null))
+    return () => {
+      active = false
+    }
+  }, [role, profile?.department_id])
 
   const adminSidebar = location.pathname.startsWith('/admin') && isStaff(role)
 
@@ -42,6 +61,7 @@ export default function Layout({ children }) {
         )}
         <strong className="topbar-brand">Curriculum Feedback</strong>
         <span className="role-chip">{ROLE_LABELS[role] ?? role}</span>
+        {deptLabel && <span className="dept-chip">{deptLabel}</span>}
       </div>
       <div className="topbar-right">
         <span className="muted topbar-name">{profile?.full_name || profile?.email}</span>
